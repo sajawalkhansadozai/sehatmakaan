@@ -1,0 +1,1 @@
+{"firestore":{"database":"(default)","location":"nam5","rules":"firestore.rules","indexes":"firestore.indexes.json"},"flutter":{"platforms":{"dart":{"lib/firebase_options.dart":{"projectId":"sehatmakaanwebsite","configurations":{"web":"1:507236142188:web:f172bed5674a01fcd0dc49"}}}}}}
