@@ -382,7 +382,7 @@ class OperationalHandbook {
   // Contact Information
   static const ContactInfo contactInfo = ContactInfo(
     address:
-        'Office 304, 3rd Floor, Plaza 95, Main Boulevard, Gulberg III, Lahore - 54000, Punjab, Pakistan',
+        'Office 304, 3rd Floor, Plaza 95, Main Boulevard, DHA Phase 8, Lahore - 54000, Punjab, Pakistan',
     phone: ['+92 324 9043006'],
     email: ['support@sehatmakaan.com'],
     workingHours: 'Monday-Saturday: 9:00 AM - 7:00 PM (Sunday Closed)',

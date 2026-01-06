@@ -345,7 +345,7 @@ class AppFooter extends StatelessWidget {
         _buildContactItem(
           context,
           Icons.location_on_outlined,
-          'Office 304, 3rd Floor, Plaza 95\nMain Boulevard, Gulberg III\nLahore - 54000, Punjab, Pakistan',
+          'Office 304, 3rd Floor, Plaza 95\nMain Boulevard, DHA Phase 8\nLahore - 54000, Punjab, Pakistan',
           null,
         ),
         const SizedBox(height: 16),

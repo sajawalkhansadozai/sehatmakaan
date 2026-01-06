@@ -907,7 +907,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                     _buildStatItem(
                       icon: Icons.location_on,
-                      value: 'Gulberg',
+                      value: 'DHA Phase 8',
                       label: 'Prime Location',
                     ),
                   ],
@@ -935,7 +935,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                     _buildStatItem(
                       icon: Icons.location_on,
-                      value: 'Gulberg',
+                      value: 'DHA Phase 8',
                       label: 'Prime Location',
                     ),
                   ],
@@ -963,7 +963,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 32),
                     _buildStatItem(
                       icon: Icons.location_on,
-                      value: 'Gulberg',
+                      value: 'DHA Phase 8',
                       label: 'Prime Location',
                     ),
                   ],

@@ -19,60 +19,6 @@ class PrivacyPolicyPage extends StatelessWidget {
     );
   }
 
-  Widget _buildHeaderSection(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.secondary, AppColors.secondaryDark],
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.privacy_tip,
-              size: 64,
-              color: AppColors.textLight,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Privacy Policy',
-            style: Theme.of(context).textTheme.displayMedium?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              'Last Updated: January 3, 2026',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildContentSection(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
@@ -277,21 +223,22 @@ class PrivacyPolicyPage extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              'Sehat Makaan operates a clinical co-working and digital booking platform that enables licensed medical and dental practitioners to book and use clinical space and related services, and enables patients to schedule consultations and receive care from independent Practitioners. This Privacy Policy explains how we collect, use, store, protect, and disclose Personal Data and Sensitive Personal Data (including health-related information) processed through our website, mobile applications, booking systems, and on-site operations. '
-                              'By using our Services, you acknowledge that you have read and understood this Privacy Policy and consent to the processing of your information as described here, in accordance with applicable laws of Pakistan and other relevant regulations. '
-                              'This Privacy Policy applies to Practitioners who register with Sehat Makaan and use our facilities and digital platforms, Patients and visitors who book appointments, use our website/app, or otherwise interact with our Services, and any other individuals whose information is processed in connection with the provision of our Services. '
-                              'For the purposes of this Policy, "Personal Data" means any information that identifies or can reasonably identify an individual, such as name, CNIC, contact details, and online identifiers. "Sensitive Personal Data" includes medical records, health information, clinical images, and any data relating to an individual\'s physical or mental health. '
-                              'We collect Practitioner Information including full name, title, specialty, CNIC, PMDC/medical registration number, license details, contact information, bank or payment information, professional profile content, and usage data relating to booking patterns. We also collect Patient and User Information including identification and contact details, demographic details, appointment details, health-related information, and communication records. '
-                              'Payment and Transaction Information includes limited payment details collected during booking or subscription payments. Card details and other sensitive financial data are processed securely by our third-party payment service providers and are not stored in full by Sehat Makaan. We also collect Technical and Usage Data such as log data, IP address, device type, browser type, operating system, timestamps of access, and cookies. '
-                              'We process Personal Data to register Practitioners, verify credentials, manage rental agreements and booking entitlements, enable patients to search for, book, manage, and attend appointments, facilitate and confirm payments, maintain accurate clinical and booking records, provide customer support, operate and secure our systems, comply with legal and regulatory obligations, and prevent fraud and misuse. '
-                              'Patient information necessary for delivering care is shared with the selected Practitioner and authorized support staff strictly on a need-to-know basis. Practitioners are independent professionals responsible for safeguarding patient data in accordance with professional and ethical guidelines. For online payments, limited user data may be shared with third-party payment processors such as PayFast, solely for the purpose of securely processing transactions. '
-                              'We may engage third-party vendors to support IT hosting, data storage, SMS and email services, analytics and platform security. Such service providers only process Personal Data under our instructions and are bound by contractual obligations to maintain confidentiality. We may disclose Personal Data where required to comply with applicable laws, regulations, or lawful requests by public authorities, regulators, or courts. '
-                              'Sehat Makaan implements appropriate technical and organizational security measures including encryption of data in transit, access control and authentication mechanisms, regular system monitoring, secure infrastructure and firewalls, and staff training and confidentiality undertakings. However, no system is completely secure, and we cannot guarantee absolute security. '
-                              'We retain Personal Data only for as long as necessary to fulfill the purposes described in this Policy or to comply with legal, regulatory, or contractual obligations. Once data is no longer required, it will be securely deleted, anonymized, or otherwise irreversibly de-identified. '
-                              'Subject to applicable law, individuals may have rights including the right to access, rectification, deletion, restriction/objection, and withdrawal of consent. To exercise any of these rights, please contact us at support@sehatmakaan.com or +92 324 9043006. '
-                              'Our website and applications may use cookies and similar technologies to enable core functionality, improve performance and security, and collect aggregated analytics. You may adjust your browser settings to refuse cookies; however, some features may not function properly. '
-                              'Our Services are intended for adults and licensed Practitioners. Patients who are minors should be registered by their parent or legal guardian. We do not knowingly collect Personal Data directly from children without appropriate consent. '
-                              'We may update this Privacy Policy from time to time to reflect changes in legal requirements or our practices. When we make material changes, we will update the Effective Date and may notify users via email or on-site notices. Continued use of the Services after such changes constitutes acceptance of the updated Policy.',
+                              'Effective Date: January 6, 2026\n\n'
+                              'Sehat Makaan operates a clinical co‑working and digital booking platform that enables licensed medical and dental Practitioners to book and use clinical space and related services. Patients, where applicable, may use the Platform only to schedule consultations with these independent Practitioners, who provide care in their own name and at their own professional responsibility.\n\n'
+                              'This Privacy Policy explains how we collect, use, store, protect, and disclose Personal Data and Sensitive Personal Data (including health‑related information) processed through our website, mobile applications, booking systems, and on‑site operations. By using our Services, you acknowledge that you have read and understood this Privacy Policy and consent to the processing of your information as described here, in accordance with applicable laws of Pakistan and other relevant regulations.\n\n'
+                              'This Privacy Policy applies to Practitioners who register with Sehat Makaan and use our facilities and digital platforms, Patients and visitors who book appointments, use our website/app, or otherwise interact with our Services, and any other individuals whose information is processed in connection with the provision of our Services. Sehat Makaan does not provide medical diagnosis or treatment directly to patients; it processes data only in connection with facilitating Practitioners\' independent clinical practice and facility use.\n\n'
+                              'For the purposes of this Policy, "Personal Data" means any information that identifies or can reasonably identify an individual, such as name, CNIC, contact details, and online identifiers. "Sensitive Personal Data" includes medical records, health information, clinical images, and any data relating to an individual\'s physical or mental health.\n\n'
+                              'We collect Practitioner Information including full name, title, specialty, CNIC, PMDC/medical registration number, license details, contact information, bank or payment information, professional profile content, and usage data relating to booking patterns. We also collect Patient and User Information including identification and contact details, demographic details, appointment details, health‑related information, and communication records.\n\n'
+                              'Payment and Transaction Information includes limited payment details collected during booking or subscription payments. Card details and other sensitive financial data are processed securely by our third‑party payment service providers and are not stored in full by Sehat Makaan. We also collect Technical and Usage Data such as log data, IP address, device type, browser type, operating system, timestamps of access, and cookies.\n\n'
+                              'We process Personal Data to register Practitioners, verify credentials, manage rental agreements and booking entitlements, enable patients (where applicable) to search for, book, manage, and attend appointments with independent Practitioners, facilitate and confirm payments, maintain accurate booking and operational records, provide customer support, operate and secure our systems, comply with legal and regulatory obligations, and prevent fraud and misuse.\n\n'
+                              'Patient information necessary for delivering care is shared with the selected Practitioner and authorized support staff strictly on a need‑to‑know basis. Practitioners are independent professionals responsible for safeguarding patient data in accordance with professional and ethical guidelines. For online payments, limited user data may be shared with third‑party payment processors such as PayFast, solely for the purpose of securely processing transactions.\n\n'
+                              'We may engage third‑party vendors to support IT hosting, data storage, SMS and email services, analytics, and platform security. Such service providers only process Personal Data under our instructions and are bound by contractual obligations to maintain confidentiality and appropriate security. We may disclose Personal Data where required to comply with applicable laws, regulations, or lawful requests by public authorities, regulators, or courts.\n\n'
+                              'Sehat Makaan implements appropriate technical and organizational security measures including encryption of data in transit, access control and authentication mechanisms, regular system monitoring, secure infrastructure and firewalls, and staff training and confidentiality undertakings. However, no system is completely secure, and we cannot guarantee absolute security.\n\n'
+                              'We retain Personal Data only for as long as necessary to fulfill the purposes described in this Policy or to comply with legal, regulatory, or contractual obligations. Once data is no longer required, it will be securely deleted, anonymized, or otherwise irreversibly de‑identified.\n\n'
+                              'Subject to applicable law, individuals may have rights including the right to access, rectification, deletion, restriction/objection, and withdrawal of consent. To exercise any of these rights, please contact us at support@sehatmakaan.com or +92 324 9043006.\n\n'
+                              'Our website and applications may use cookies and similar technologies to enable core functionality, improve performance and security, and collect aggregated analytics. You may adjust your browser settings to refuse cookies; however, some features may not function properly if cookies are disabled.\n\n'
+                              'Our Services are intended for adults and licensed Practitioners. Patients who are minors should be registered and represented by their parent or legal guardian, in accordance with applicable law. We do not knowingly collect Personal Data directly from children without appropriate consent.\n\n'
+                              'We may update this Privacy Policy from time to time to reflect changes in legal requirements or our practices. When we make material changes, we will update the Effective Date and may notify users via email or on‑site notices. Continued use of the Services after such changes constitutes acceptance of the updated Policy.',
                               style: Theme.of(context).textTheme.bodyLarge
                                   ?.copyWith(
                                     height: 1.9,
@@ -478,7 +425,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             context,
                             Icons.location_on_outlined,
                             'Visit Us',
-                            'Office 304, 3rd Floor, Plaza 95, Main Boulevard\nGulberg III, Lahore - 54000, Punjab, Pakistan',
+                            'Office 304, 3rd Floor, Plaza 95, Main Boulevard\nDHA Phase 8, Lahore - 54000, Punjab, Pakistan',
                             AppColors.primary,
                           ),
                           const SizedBox(height: 20),
