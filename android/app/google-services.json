@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "137940009532",
+    "project_id": "sehatmakaan-833e2",
+    "storage_bucket": "sehatmakaan-833e2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:137940009532:android:ac7d84b1dcbb7c82053939",
+        "android_client_info": {
+          "package_name": "com.sehatmakaan.sehat_makaan_flutter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoOM9HtC09HcTmOFLoDronUjBho3IHjHI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

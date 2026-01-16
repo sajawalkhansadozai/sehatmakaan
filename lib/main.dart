@@ -1,0 +1,288 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'screens/splash_screen.dart';
+import 'screens/landing_page.dart';
+import 'screens/login_page.dart';
+import 'screens/registration_page_new.dart';
+import 'screens/agreement_page.dart';
+import 'screens/verification_page.dart';
+import 'screens/account_suspended_page.dart';
+import 'screens/user/suite_selection_page.dart';
+import 'screens/user/packages_page.dart';
+import 'screens/user/dashboard_page.dart';
+import 'screens/user/monthly_dashboard_page.dart';
+import 'screens/user/analytics_page.dart';
+import 'screens/user/settings_page.dart';
+import 'features/workshops/screens/user/workshops_page.dart';
+import 'features/workshops/screens/user/create_workshop_page.dart';
+import 'screens/user/help_and_support_page.dart';
+import 'screens/admin/admin_login_page.dart';
+import 'screens/admin/admin_dashboard_page.dart';
+import 'features/bookings/screens/user/booking_workflow_page.dart';
+import 'features/workshops/screens/user/workshop_registration_page.dart';
+import 'features/workshops/screens/user/workshop_checkout_page.dart';
+import 'screens/user/credentials_page.dart';
+import 'screens/user/checkout_page.dart';
+import 'screens/user/my_schedule_page.dart';
+import 'screens/user/live_slot_booking_page.dart';
+import 'screens/not_found_page.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  runApp(const ProviderScope(child: SehatMakaanApp()));
+}
+
+class SehatMakaanApp extends StatelessWidget {
+  const SehatMakaanApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Sehat Makaan',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF006876),
+          primary: const Color(0xFF006876),
+          secondary: const Color(0xFFFF6B35),
+        ),
+        fontFamily: 'Inter',
+        scaffoldBackgroundColor: const Color(0xFFE6F7F9),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF006876),
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFFF6B35),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            elevation: 2,
+          ),
+        ),
+        cardTheme: const CardThemeData(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+        ),
+      ),
+      initialRoute: '/',
+      onGenerateRoute: _generateRoute,
+    );
+  }
+
+  Route<dynamic>? _generateRoute(RouteSettings settings) {
+    final args = settings.arguments;
+
+    switch (settings.name) {
+      case '/':
+        return MaterialPageRoute(builder: (_) => const SplashScreen());
+
+      case '/landing':
+        return MaterialPageRoute(
+          builder: (context) => LandingPage(
+            onLoginClick: () {
+              Navigator.pushNamed(context, '/login');
+            },
+          ),
+        );
+
+      case '/login':
+        return MaterialPageRoute(builder: (_) => const LoginPage());
+
+      case '/registration':
+        return MaterialPageRoute(builder: (_) => const RegistrationPage());
+
+      case '/agreement':
+        return MaterialPageRoute(builder: (_) => const AgreementPage());
+
+      case '/verification':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? {};
+        return MaterialPageRoute(
+          builder: (_) =>
+              VerificationPage(userId: userSession['id']?.toString()),
+        );
+
+      case '/account-suspended':
+        final String reason = args is String
+            ? args
+            : 'Terms and Conditions Violation';
+        return MaterialPageRoute(
+          builder: (_) => AccountSuspendedPage(reason: reason),
+        );
+
+      case '/suite-selection':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? {};
+        return MaterialPageRoute(
+          builder: (_) => SuiteSelectionPage(userSession: userSession),
+        );
+
+      case '/packages':
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => PackagesPage(
+              userSession: args['userSession'],
+              selectedSuite: args['selectedSuite'],
+            ),
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const PackagesPage());
+
+      case '/dashboard':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => DashboardPage(userSession: userSession),
+        );
+
+      case '/analytics':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => AnalyticsPage(userSession: userSession),
+        );
+
+      case '/settings':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => SettingsPage(userSession: userSession),
+        );
+
+      case '/monthly-dashboard':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => MonthlyDashboardPage(userSession: userSession),
+        );
+
+      case '/workshops':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => WorkshopsPage(userSession: userSession),
+        );
+
+      case '/create-workshop':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => CreateWorkshopPage(userSession: userSession),
+        );
+
+      case '/admin-login':
+        return MaterialPageRoute(builder: (_) => const AdminLoginPage());
+
+      case '/admin-dashboard':
+        debugPrint('🔍 Admin Dashboard Route - Raw args: $args');
+        final Map<String, dynamic> adminSession =
+            args as Map<String, dynamic>? ?? {'username': 'admin'};
+        debugPrint('🔍 Admin Dashboard Route - adminSession: $adminSession');
+        return MaterialPageRoute(
+          builder: (_) => AdminDashboardPage(adminSession: adminSession),
+        );
+
+      case '/booking-workflow':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => BookingWorkflowPage(userSession: userSession),
+        );
+
+      case '/live-slot-booking':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => LiveSlotBookingPage(userSession: userSession),
+        );
+
+      case '/workshop-registration':
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => WorkshopRegistrationPage(
+              workshop: args['workshop'],
+              userSession: args['userSession'] ?? _getStoredUserSession(),
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Workshop Registration')),
+            body: const Center(child: Text('Missing workshop data')),
+          ),
+        );
+
+      case '/workshop-checkout':
+        return MaterialPageRoute(builder: (_) => const WorkshopCheckoutPage());
+
+      case '/credentials':
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => CredentialsPage(
+              username: args['username'] ?? 'N/A',
+              password: args['password'] ?? 'N/A',
+              userId: args['userId']?.toString(),
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const Scaffold(
+            body: Center(child: Text('Missing credentials data')),
+          ),
+        );
+
+      case '/checkout':
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => CheckoutPage(
+              cartItems: args['cartItems'] ?? [],
+              userSession: args['userSession'] ?? _getStoredUserSession(),
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Checkout')),
+            body: const Center(child: Text('Missing cart data')),
+          ),
+        );
+
+      case '/my-schedule':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => MySchedulePage(userSession: userSession),
+        );
+
+      case '/help-support':
+        final Map<String, dynamic> userSession =
+            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        return MaterialPageRoute(
+          builder: (_) => HelpAndSupportPage(userSession: userSession),
+        );
+
+      default:
+        return MaterialPageRoute(
+          builder: (_) => NotFoundPage(attemptedRoute: settings.name),
+        );
+    }
+  }
+
+  Map<String, dynamic> _getStoredUserSession() {
+    // Return empty session - will be populated after login
+    // Routes should handle empty session gracefully
+    return {};
+  }
+}
