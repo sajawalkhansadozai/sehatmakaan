@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../utils/constants.dart';
+import 'privacy_policy_page.dart';
+import 'terms_conditions_page.dart';
 
 class LandingPage extends ConsumerStatefulWidget {
   final VoidCallback? onLoginClick;
@@ -100,6 +102,7 @@ class _LandingPageState extends ConsumerState<LandingPage>
       backgroundColor: Colors.white,
       elevation: 1,
       title: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
@@ -116,12 +119,42 @@ class _LandingPageState extends ConsumerState<LandingPage>
             style: TextStyle(
               color: Color(0xFF006876),
               fontWeight: FontWeight.bold,
-              fontSize: 24,
+              fontSize: 18,
             ),
           ),
         ],
       ),
       actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => PrivacyPolicyPage()),
+            );
+          },
+          child: Text(
+            'Privacy',
+            style: TextStyle(
+              color: Color(0xFF006876),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => TermsConditionsPage()),
+            );
+          },
+          child: Text(
+            'Terms',
+            style: TextStyle(
+              color: Color(0xFF006876),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
         TextButton(
           onPressed: widget.onLoginClick,
           child: Text(
@@ -139,7 +172,9 @@ class _LandingPageState extends ConsumerState<LandingPage>
 
   Widget _buildPracticeRegistrationTab() {
     return SingleChildScrollView(
-      child: Column(children: [_buildHeroSection(), _buildPricingSection()]),
+      child: Column(
+        children: [_buildHeroSection(), _buildPricingSection(), _buildFooter()],
+      ),
     );
   }
 
@@ -787,6 +822,76 @@ class _LandingPageState extends ConsumerState<LandingPage>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildFooter() {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+      decoration: BoxDecoration(
+        color: Color(0xFF006876),
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PrivacyPolicyPage(),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Privacy Policy',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
+              Text(
+                ' | ',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TermsConditionsPage(),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Terms & Conditions',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          Text(
+            '© 2026 Sehat Makaan. All rights reserved.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 14,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Office 304, 3rd Floor, Plaza 95, Main Boulevard, DHA Phase 8, Lahore',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.6),
+              fontSize: 12,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }

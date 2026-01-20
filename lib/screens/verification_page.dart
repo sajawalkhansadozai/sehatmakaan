@@ -63,7 +63,7 @@ class _VerificationPageState extends State<VerificationPage> {
                 if (mounted) {
                   Navigator.pushNamedAndRemoveUntil(
                     context,
-                    '/suite-selection',
+                    '/dashboard',
                     (route) => false,
                     arguments: {
                       'id': currentUser.uid,

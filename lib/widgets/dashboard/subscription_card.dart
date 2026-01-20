@@ -27,8 +27,14 @@ class SubscriptionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hoursIncluded = subscription['hoursIncluded'] as int? ?? 0;
     final remainingHours = subscription['remainingHours'] as int? ?? 0;
+    final remainingMinutes = subscription['remainingMinutes'] as int? ?? 0;
     final hoursUsed = hoursIncluded - remainingHours;
     final progress = hoursIncluded > 0 ? hoursUsed / hoursIncluded : 0.0;
+
+    // Format remaining time display
+    final remainingTimeDisplay = remainingMinutes > 0
+        ? '$remainingHours:${remainingMinutes.toString().padLeft(2, '0')}'
+        : '$remainingHours';
 
     // Calculate days remaining until expiry
     final endDate =
@@ -95,7 +101,7 @@ class SubscriptionCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '$remainingHours / $hoursIncluded',
+                        '$remainingTimeDisplay / $hoursIncluded',
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,

@@ -115,19 +115,34 @@ class OverviewTab extends StatelessWidget {
         // Revenue from active subscriptions this month
         for (var sub in subscriptions) {
           final data = sub.data() as Map<String, dynamic>?;
-          final createdAt = (data?['createdAt'] as Timestamp?)?.toDate();
-          if (createdAt != null && createdAt.isAfter(startOfMonth)) {
-            monthlyRevenue += (data?['price'] as num?)?.toDouble() ?? 0;
+          if (data == null) continue;
+
+          final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+          final isActive = data['status'] == 'active';
+
+          // Include if created this month OR if currently active (for display purposes)
+          if (isActive &&
+              createdAt != null &&
+              createdAt.isAfter(startOfMonth)) {
+            final price =
+                (data['price'] as num?)?.toDouble() ??
+                (data['monthlyPrice'] as num?)?.toDouble() ??
+                0;
+            monthlyRevenue += price;
           }
         }
 
         // Revenue from paid bookings this month
         for (var booking in bookings) {
           final data = booking.data() as Map<String, dynamic>?;
-          final createdAt = (data?['createdAt'] as Timestamp?)?.toDate();
-          final isPaid = data?['isPaid'] ?? false;
+          if (data == null) continue;
+
+          final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+          final paymentStatus = data['paymentStatus'] as String?;
+          final isPaid = paymentStatus == 'paid';
+
           if (createdAt != null && createdAt.isAfter(startOfMonth) && isPaid) {
-            monthlyRevenue += (data?['totalAmount'] as num?)?.toDouble() ?? 0;
+            monthlyRevenue += (data['totalAmount'] as num?)?.toDouble() ?? 0;
           }
         }
 

@@ -9,7 +9,6 @@ import 'screens/registration_page_new.dart';
 import 'screens/agreement_page.dart';
 import 'screens/verification_page.dart';
 import 'screens/account_suspended_page.dart';
-import 'screens/user/suite_selection_page.dart';
 import 'screens/user/packages_page.dart';
 import 'screens/user/dashboard_page.dart';
 import 'screens/user/monthly_dashboard_page.dart';
@@ -120,13 +119,6 @@ class SehatMakaanApp extends StatelessWidget {
             : 'Terms and Conditions Violation';
         return MaterialPageRoute(
           builder: (_) => AccountSuspendedPage(reason: reason),
-        );
-
-      case '/suite-selection':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? {};
-        return MaterialPageRoute(
-          builder: (_) => SuiteSelectionPage(userSession: userSession),
         );
 
       case '/packages':

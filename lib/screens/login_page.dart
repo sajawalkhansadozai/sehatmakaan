@@ -253,7 +253,9 @@ class _LoginPageState extends State<LoginPage> {
       debugPrint('🔐 Login Check - isActive: $isActive');
 
       if (status == 'suspended') {
-        debugPrint('⛔ SUSPENDED USER - Blocking login and showing suspension page');
+        debugPrint(
+          '⛔ SUSPENDED USER - Blocking login and showing suspension page',
+        );
         await _auth.signOut();
         if (mounted) {
           Navigator.pushReplacementNamed(
@@ -318,7 +320,7 @@ class _LoginPageState extends State<LoginPage> {
 
         Navigator.pushNamedAndRemoveUntil(
           context,
-          '/suite-selection',
+          '/dashboard',
           (route) => false,
           arguments: userSessionData,
         );

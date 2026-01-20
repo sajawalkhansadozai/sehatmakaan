@@ -2333,24 +2333,45 @@ exports.onBookingStatusChange = functions.firestore
         // Refund hours ONLY if refundIssued is true
         const shouldRefund = afterData.refundIssued === true;
         
-        if (shouldRefund && afterData.durationHours) {
-          const subscriptionQuery = await admin.firestore()
-            .collection('subscriptions')
-            .where('userId', '==', userId)
-            .where('status', '==', 'active')
-            .orderBy('createdAt', 'desc')
-            .limit(1)
-            .get();
+        if (shouldRefund) {
+          // Use chargedMinutes (what user paid) not durationHours (includes Extended Hours bonus)
+          const chargedMins = afterData.chargedMinutes || afterData.totalDurationMins || (afterData.durationHours * 60);
+          
+          if (chargedMins > 0) {
+            const subscriptionQuery = await admin.firestore()
+              .collection('subscriptions')
+              .where('userId', '==', userId)
+              .where('status', '==', 'active')
+              .orderBy('createdAt', 'desc')
+              .limit(1)
+              .get();
 
-          if (!subscriptionQuery.empty) {
-            const subDoc = subscriptionQuery.docs[0];
-            const currentRemaining = subDoc.data().remainingHours || 0;
-            await subDoc.ref.update({
-              remainingHours: currentRemaining + afterData.durationHours,
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            console.log(`✅ Refunded ${afterData.durationHours} hours to user ${userId}`);
-            notificationBody += ` ${afterData.durationHours} hour(s) have been refunded to your account.`;
+            if (!subscriptionQuery.empty) {
+              const subDoc = subscriptionQuery.docs[0];
+              const currentRemainingHours = subDoc.data().remainingHours || 0;
+              const currentRemainingMins = subDoc.data().remainingMinutes || 0;
+              const currentTotalMins = (currentRemainingHours * 60) + currentRemainingMins;
+              
+              // Add back the charged minutes
+              const newTotalMins = currentTotalMins + chargedMins;
+              const newRemainingHours = Math.floor(newTotalMins / 60);
+              const newRemainingMinutes = newTotalMins % 60;
+              
+              await subDoc.ref.update({
+                remainingHours: newRemainingHours,
+                remainingMinutes: newRemainingMinutes,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+              
+              const refundHours = Math.floor(chargedMins / 60);
+              const refundMins = chargedMins % 60;
+              const refundText = refundMins > 0 
+                ? `${refundHours}h ${refundMins}m` 
+                : `${refundHours} hour(s)`;
+              
+              console.log(`✅ Refunded ${chargedMins} mins (${refundText}) to user ${userId}`);
+              notificationBody += ` ${refundText} have been refunded to your account.`;
+            }
           }
         } else if (!shouldRefund) {
           notificationBody += ' No refund issued.';
@@ -2603,7 +2624,7 @@ exports.onAdminBookingCancellation = functions.firestore
 
       // Determine refund status
       const refundIssued = afterData.refundIssued === true;
-      const durationHours = afterData.durationHours || 0;
+      const chargedMins = afterData.chargedMinutes || afterData.totalDurationMins || (afterData.durationHours * 60) || 0;
       const bookingDate = afterData.bookingDate?.toDate().toLocaleDateString() || 'selected date';
       const specialty = afterData.specialty || 'suite';
 
@@ -2611,8 +2632,13 @@ exports.onAdminBookingCancellation = functions.firestore
       let notificationTitle = '❌ Booking Cancelled by Admin';
       let notificationBody = `Your booking for ${specialty} on ${bookingDate} has been cancelled by the administrator.`;
 
-      if (refundIssued && durationHours > 0) {
-        notificationBody += ` ${durationHours} hour(s) have been refunded to your account.`;
+      if (refundIssued && chargedMins > 0) {
+        const refundHours = Math.floor(chargedMins / 60);
+        const refundMins = chargedMins % 60;
+        const refundText = refundMins > 0 
+          ? `${refundHours}h ${refundMins}m` 
+          : `${refundHours} hour(s)`;
+        notificationBody += ` ${refundText} have been refunded to your account.`;
       } else {
         notificationBody += ' No refund issued for this cancellation.';
       }
@@ -2643,7 +2669,7 @@ exports.onAdminBookingCancellation = functions.firestore
               type: 'admin_booking_cancellation',
               bookingId: bookingId,
               refundIssued: refundIssued.toString(),
-              durationHours: durationHours.toString(),
+              chargedMinutes: chargedMins.toString(),
               click_action: 'FLUTTER_NOTIFICATION_CLICK',
             },
             token: fcmToken,
