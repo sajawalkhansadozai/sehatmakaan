@@ -167,12 +167,10 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
       case 2:
         return _bookingType == 'hourly'
             ? SpecialtySelectionStep(
+                selectedSuite: _selectedSuite,
                 selectedSpecialty: _selectedSpecialty,
-                selectedHours: _selectedHours,
                 onSpecialtySelected: (specialty) =>
                     setState(() => _selectedSpecialty = specialty),
-                onHoursChanged: (hours) =>
-                    setState(() => _selectedHours = hours),
               )
             : PackageSelectionStep(
                 selectedSuite: _selectedSuite,
@@ -238,6 +236,7 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
       case 4:
         return _bookingType == 'hourly'
             ? DateSlotSelectionStep(
+                selectedSuite: _selectedSuite,
                 selectedDate: _selectedDate,
                 selectedTimeSlot: _selectedTimeSlot,
                 startTime: _startTime,
@@ -316,22 +315,8 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
       );
       var baseRate = suite.baseRate.toDouble();
 
-      // Check if this is a priority time slot (6PM-10PM or weekend)
-      bool isPrioritySlot = false;
-      if (_selectedTimeSlot != null) {
-        final slotParts = _selectedTimeSlot!.split(':');
-        final slotHour = int.parse(slotParts[0]);
-        final isWeekend =
-            _selectedDate.weekday == DateTime.saturday ||
-            _selectedDate.weekday == DateTime.sunday;
-        final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
-        isPrioritySlot = isWeekend || isPriorityTime;
-      }
-
-      // Apply 1.5x rate for priority slots
-      if (isPrioritySlot) {
-        baseRate = baseRate * 1.5;
-      }
+      // Priority Booking addon grants access without additional rate charges
+      // Users pay PKR 5,000 for addon, then use priority slots at base rate
 
       int durationHours = 0;
       int durationMins = 0;
@@ -556,120 +541,188 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
   }
 
   Future<void> _createHourlyBooking(String userId) async {
-    final suite = AppConstants.suites.firstWhere(
-      (s) => s.type == _selectedSuite,
-    );
-    var baseRate = suite.baseRate.toDouble();
-    final originalRate = suite.baseRate.toDouble();
+    try {
+      final suite = AppConstants.suites.firstWhere(
+        (s) => s.type == _selectedSuite,
+      );
+      var baseRate = suite.baseRate.toDouble();
+      final originalRate = suite.baseRate.toDouble();
 
-    // Check if this is a priority time slot (6PM-10PM or weekend)
-    bool isPrioritySlot = false;
-    if (_selectedTimeSlot != null) {
-      final slotParts = _selectedTimeSlot!.split(':');
-      final slotHour = int.parse(slotParts[0]);
-      final isWeekend =
-          _selectedDate.weekday == DateTime.saturday ||
-          _selectedDate.weekday == DateTime.sunday;
-      final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
-      isPrioritySlot = isWeekend || isPriorityTime;
-    }
+      // Check if this is a priority time slot (6PM onwards or weekend)
+      bool isPrioritySlot = false;
+      if (_startTime != null && _endTime != null) {
+        final isWeekend =
+            _selectedDate.weekday == DateTime.saturday ||
+            _selectedDate.weekday == DateTime.sunday;
+        final isPriorityTime =
+            _startTime!.hour >= 18 ||
+            _endTime!.hour >= 18 ||
+            _endTime!.hour == 0;
+        isPrioritySlot = isWeekend || isPriorityTime;
+      }
 
-    // Apply 1.5x rate for priority slots
-    if (isPrioritySlot) {
-      baseRate = baseRate * 1.5;
-    }
+      // Check if user purchased Priority Booking addon
+      final hasPriority = _selectedAddons.any(
+        (addon) => addon['code'] == 'priority_booking',
+      );
 
-    int durationHours = 0;
-    int durationMins = 0;
-    String? endTimeStr;
-
-    if (_startTime != null && _endTime != null) {
-      final startMinutes = _startTime!.hour * 60 + _startTime!.minute;
-      final endMinutes = _endTime!.hour * 60 + _endTime!.minute;
-      final totalMinutes = endMinutes - startMinutes;
-      durationHours = totalMinutes ~/ 60;
-      durationMins = totalMinutes % 60;
-      endTimeStr =
-          '${_endTime!.hour.toString().padLeft(2, '0')}:${_endTime!.minute.toString().padLeft(2, '0')}';
-    } else {
-      durationHours = _selectedHours;
-      durationMins = 0;
-    }
-
-    final totalDurationMins = (durationHours * 60) + durationMins;
-    final hoursForCalculation = totalDurationMins / 60;
-    var totalAmount = baseRate * hoursForCalculation;
-
-    for (final addon in _selectedAddons) {
-      totalAmount += addon['price'] as double;
-    }
-
-    // Check if user purchased Priority Booking addon
-    final hasPriority = _selectedAddons.any(
-      (addon) => addon['code'] == 'priority_booking',
-    );
-
-    // Check if user purchased Extended Hours addon
-    final hasExtendedHours = _selectedAddons.any(
-      (addon) => addon['code'] == 'extended_hours',
-    );
-
-    // Create booking datetime by combining date and time slot
-    DateTime bookingDateTime = _selectedDate;
-    if (_selectedTimeSlot != null) {
-      final timeParts = _selectedTimeSlot!.split(':');
-      if (timeParts.length >= 2) {
-        final hour = int.tryParse(timeParts[0]) ?? 0;
-        final minute = int.tryParse(timeParts[1]) ?? 0;
-        bookingDateTime = DateTime(
-          _selectedDate.year,
-          _selectedDate.month,
-          _selectedDate.day,
-          hour,
-          minute,
+      // Validate Priority Booking addon for priority slots
+      if (isPrioritySlot && !hasPriority) {
+        throw Exception(
+          'Priority Booking addon is required to book slots between 6PM-10PM or on weekends. Please add the Priority Booking addon.',
         );
       }
-    }
 
-    await _firestore.collection('bookings').add({
-      'userId': userId,
-      'doctorId': userId,
-      'doctorName': widget.userSession['fullName'] ?? 'Unknown',
-      'doctorEmail': widget.userSession['email'] ?? '',
-      'suiteType': _selectedSuite!.value,
-      'specialty': _selectedSpecialty,
-      'bookingType': 'hourly',
-      'bookingDate': Timestamp.fromDate(bookingDateTime),
-      'timeSlot': _selectedTimeSlot,
-      'startTime': _selectedTimeSlot,
-      'endTime': endTimeStr,
-      'hours': durationHours + (durationMins / 60),
-      'durationHours': durationHours,
-      'durationMins': durationMins,
-      'totalDurationMins': totalDurationMins,
-      'baseRate': baseRate,
-      'originalRate': originalRate,
-      'isPrioritySlot': isPrioritySlot,
-      'totalAmount': totalAmount,
-      'selectedAddons': _selectedAddons
-          .map(
-            (addon) => {
-              'name': addon['name'],
-              'code': addon['code'],
-              'price': addon['price'],
-            },
-          )
-          .toList(),
-      'hasPriority': hasPriority,
-      'hasExtendedHours': hasExtendedHours,
-      'status': 'confirmed',
-      'paymentStatus': 'paid',
-      'paymentMethod': 'card',
-      'isPaid': true,
-      'paidAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+      // Priority Booking addon grants access without additional rate charges
+      // Users pay PKR 5,000 for addon, then use priority slots at base rate
+
+      // Check if user purchased Extended Hours addon
+      final hasExtendedHours = _selectedAddons.any(
+        (addon) => addon['code'] == 'extended_hours',
+      );
+
+      int durationHours = 0;
+      int durationMins = 0;
+      String? endTimeStr;
+
+      if (_startTime != null && _endTime != null) {
+        final startMinutes = _startTime!.hour * 60 + _startTime!.minute;
+        final endMinutes = _endTime!.hour * 60 + _endTime!.minute;
+        final totalMinutes = endMinutes - startMinutes;
+        durationHours = totalMinutes ~/ 60;
+        durationMins = totalMinutes % 60;
+        endTimeStr =
+            '${_endTime!.hour.toString().padLeft(2, '0')}:${_endTime!.minute.toString().padLeft(2, '0')}';
+
+        // Check hard limit: 22:00 normally, 22:30 with Extended Hours addon
+        final hardLimitMins = hasExtendedHours ? (22 * 60 + 30) : (22 * 60);
+        if (endMinutes > hardLimitMins) {
+          final limitTime = hasExtendedHours
+              ? '22:30 (10:30 PM)'
+              : '22:00 (10:00 PM)';
+          throw Exception(
+            'Bookings must end by $limitTime. Your booking would end at ${_endTime!.hour}:${_endTime!.minute.toString().padLeft(2, '0')}',
+          );
+        }
+      } else {
+        durationHours = _selectedHours;
+        durationMins = 0;
+      }
+
+      final totalDurationMins = (durationHours * 60) + durationMins;
+
+      // Calculate chargeable minutes with Extended Hours 30 min bonus
+      int chargeableMinutes = totalDurationMins;
+      if (hasExtendedHours) {
+        chargeableMinutes = totalDurationMins > 30 ? totalDurationMins - 30 : 0;
+      }
+
+      final hoursForCalculation = chargeableMinutes / 60;
+      var totalAmount = baseRate * hoursForCalculation;
+
+      for (final addon in _selectedAddons) {
+        totalAmount += addon['price'] as double;
+      }
+
+      // CHECK FOR BOOKING CONFLICTS (suite-specific)
+      if (_startTime != null && _endTime != null) {
+        final hasConflict = await _checkHourlyBookingConflict(
+          date: _selectedDate,
+          startTime: _startTime!,
+          endTime: _endTime!,
+          suiteType: _selectedSuite!.value,
+        );
+        if (hasConflict) {
+          throw Exception(
+            'This time slot conflicts with an existing booking in ${_selectedSuite!.displayName} Suite',
+          );
+        }
+      }
+
+      // Create booking datetime using actual start time (not timeSlot)
+      DateTime bookingDateTime = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        _startTime!.hour,
+        _startTime!.minute,
+      );
+
+      // Format start time string
+      final startTimeStr =
+          '${_startTime!.hour.toString().padLeft(2, '0')}:${_startTime!.minute.toString().padLeft(2, '0')}';
+
+      await _firestore.collection('bookings').add({
+        'userId': userId,
+        'doctorId': userId,
+        'doctorName': widget.userSession['fullName'] ?? 'Unknown',
+        'doctorEmail': widget.userSession['email'] ?? '',
+        'suiteType': _selectedSuite!.value,
+        'specialty': _selectedSpecialty,
+        'bookingType': 'hourly',
+        'bookingDate': Timestamp.fromDate(bookingDateTime),
+        'timeSlot': _selectedTimeSlot,
+        'startTime': startTimeStr,
+        'endTime': endTimeStr,
+        'hours': durationHours + (durationMins / 60),
+        'durationHours': durationHours,
+        'durationMins': durationMins,
+        'totalDurationMins': totalDurationMins,
+        'chargedMinutes': chargeableMinutes,
+        'baseRate': baseRate,
+        'originalRate': originalRate,
+        'isPrioritySlot': isPrioritySlot,
+        'totalAmount': totalAmount,
+        'selectedAddons': _selectedAddons
+            .map(
+              (addon) => {
+                'name': addon['name'],
+                'code': addon['code'],
+                'price': addon['price'],
+              },
+            )
+            .toList(),
+        'hasPriority': hasPriority,
+        'hasExtendedHours': hasExtendedHours,
+        'hasExtendedHoursBonus': hasExtendedHours,
+        'status': 'confirmed',
+        'paymentStatus': 'paid',
+        'paymentMethod': 'card',
+        'isPaid': true,
+        'paidAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Show success message
+      if (mounted) {
+        final exactHours = totalDurationMins / 60.0;
+        final hoursText = exactHours == exactHours.floor()
+            ? '${exactHours.toInt()} hour${exactHours.toInt() > 1 ? 's' : ''}'
+            : '${exactHours.toStringAsFixed(1)} hours';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Booking confirmed! $hoursText at PKR ${totalAmount.toStringAsFixed(0)}',
+            ),
+            backgroundColor: const Color(0xFF90D26D),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error creating hourly booking: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<void> _purchaseAddons(String userId) async {
@@ -684,5 +737,61 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
         'purchasedAt': FieldValue.serverTimestamp(),
       });
     }
+  }
+
+  /// Check for booking conflicts within the same suite type
+  Future<bool> _checkHourlyBookingConflict({
+    required DateTime date,
+    required TimeOfDay startTime,
+    required TimeOfDay endTime,
+    required String suiteType,
+  }) async {
+    final startMins = startTime.hour * 60 + startTime.minute;
+    final endMins = endTime.hour * 60 + endTime.minute;
+
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    // Filter bookings by suite type - conflicts only within same suite
+    final bookingsSnapshot = await _firestore
+        .collection('bookings')
+        .where('suiteType', isEqualTo: suiteType)
+        .where(
+          'bookingDate',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
+        )
+        .where('bookingDate', isLessThan: Timestamp.fromDate(endOfDay))
+        .where('status', whereIn: ['confirmed', 'in_progress'])
+        .get();
+
+    for (final doc in bookingsSnapshot.docs) {
+      final data = doc.data();
+      final bookedStart = data['startTime'] as String?;
+      final bookedEnd = data['endTime'] as String?;
+
+      if (bookedStart != null && bookedEnd != null) {
+        final startParts = bookedStart.split(':');
+        final endParts = bookedEnd.split(':');
+
+        if (startParts.length >= 2 && endParts.length >= 2) {
+          final bStart =
+              int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
+          final bEnd = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
+
+          // Check if time ranges overlap
+          if (startMins < bEnd && endMins > bStart) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Time slot conflicts with existing booking'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return true; // Conflict found
+          }
+        }
+      }
+    }
+
+    return false; // No conflict
   }
 }

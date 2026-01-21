@@ -42,8 +42,9 @@ class LiveBookingHelper {
         }
       }
 
-      if (hasExtendedHoursBonus && durationMinutes > 30) {
-        minutesToDeduct = durationMinutes - 30;
+      // Extended Hours addon: Always subtract 30 min bonus, minimum 0
+      if (hasExtendedHoursBonus) {
+        minutesToDeduct = durationMinutes > 30 ? durationMinutes - 30 : 0;
       }
 
       // Validate sufficient hours
@@ -104,12 +105,22 @@ class LiveBookingHelper {
       final endTimeStr =
           '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}';
 
+      // Create booking datetime with actual start time
+      final bookingDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        startTime.hour,
+        startTime.minute,
+      );
+
       // Create booking
       await _firestore.collection('bookings').add({
         'userId': userId,
+        'subscriptionId': selectedSubscriptionId,
         'suiteType': _getSuiteTypeForSpecialty(specialty),
         'specialty': specialty,
-        'bookingDate': Timestamp.fromDate(selectedDate),
+        'bookingDate': Timestamp.fromDate(bookingDateTime),
         'timeSlot': selectedTime,
         'startTime': startTimeStr,
         'endTime': endTimeStr,

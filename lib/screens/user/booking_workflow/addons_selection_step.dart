@@ -22,14 +22,14 @@ class AddonsSelectionStep extends StatelessWidget {
     },
     {
       'name': 'Priority Booking',
-      'description': 'Access weekends and 6PM-10PM slots (1.5x rate)',
+      'description': 'Access weekends and 6PM-10PM slots',
       'price': 5000.0,
       'code': 'priority_booking',
       'forMonthlyOnly': false,
     },
     {
       'name': 'Extended Hours',
-      'description': 'Unlock 11PM-12AM slots + 30 mins per booking',
+      'description': 'Get 30 minutes extra per booking',
       'price': 8000.0,
       'code': 'extended_hours',
       'forMonthlyOnly': false,

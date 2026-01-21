@@ -1,27 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:sehat_makaan_flutter/utils/types.dart';
 
 class SpecialtySelectionStep extends StatelessWidget {
+  final SuiteType? selectedSuite;
   final String? selectedSpecialty;
-  final int selectedHours;
   final Function(String) onSpecialtySelected;
-  final Function(int) onHoursChanged;
 
   const SpecialtySelectionStep({
     super.key,
+    required this.selectedSuite,
     required this.selectedSpecialty,
-    required this.selectedHours,
     required this.onSpecialtySelected,
-    required this.onHoursChanged,
   });
 
-  static const List<String> specialties = [
-    'General Dentist',
-    'Orthodontist',
-    'Endodontist',
-    'Maxillofacial Surgery',
-    'Prosthodontist',
-    'Pediatric Dentist',
-  ];
+  static const Map<SuiteType, List<String>> suiteSpecialties = {
+    SuiteType.dental: ['General Dentist', 'Endodontist', 'Orthodontist'],
+    SuiteType.medical: ['General Medical'],
+    SuiteType.aesthetic: ['Aesthetic Dermatology'],
+  };
+
+  List<String> get _filteredSpecialties {
+    if (selectedSuite == null) return [];
+    return suiteSpecialties[selectedSuite] ?? [];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,48 +45,8 @@ class SpecialtySelectionStep extends StatelessWidget {
             style: TextStyle(fontSize: 16, color: Colors.grey),
           ),
           const SizedBox(height: 24),
-          ...specialties.map((specialty) => _buildSpecialtyCard(specialty)),
-          const SizedBox(height: 24),
-          const Text(
-            'Hours to Book',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF006876),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              IconButton(
-                onPressed: selectedHours > 1
-                    ? () => onHoursChanged(selectedHours - 1)
-                    : null,
-                icon: const Icon(Icons.remove_circle_outline),
-                iconSize: 40,
-                color: const Color(0xFF006876),
-              ),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    '$selectedHours hour${selectedHours > 1 ? 's' : ''}',
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF006876),
-                    ),
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: selectedHours < 8
-                    ? () => onHoursChanged(selectedHours + 1)
-                    : null,
-                icon: const Icon(Icons.add_circle_outline),
-                iconSize: 40,
-                color: const Color(0xFF006876),
-              ),
-            ],
+          ..._filteredSpecialties.map(
+            (specialty) => _buildSpecialtyCard(specialty),
           ),
         ],
       ),

@@ -78,6 +78,11 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
             _selectedSubscriptionId = _subscriptions[0]['id'] as String;
           }
         });
+
+        // Reload available slots after loading subscriptions
+        if (_subscriptions.length == 1) {
+          await _loadAvailableSlots();
+        }
       }
     } catch (e) {
       debugPrint('❌ Error loading subscriptions: $e');

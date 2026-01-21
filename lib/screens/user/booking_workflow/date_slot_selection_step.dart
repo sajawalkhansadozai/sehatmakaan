@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sehat_makaan_flutter/utils/constants.dart';
+import 'package:sehat_makaan_flutter/utils/types.dart';
 
 class DateSlotSelectionStep extends StatefulWidget {
+  final SuiteType? selectedSuite;
   final DateTime selectedDate;
   final String? selectedTimeSlot;
   final TimeOfDay? startTime;
@@ -16,6 +18,7 @@ class DateSlotSelectionStep extends StatefulWidget {
 
   const DateSlotSelectionStep({
     super.key,
+    required this.selectedSuite,
     required this.selectedDate,
     required this.selectedTimeSlot,
     required this.startTime,
@@ -46,7 +49,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
   @override
   void didUpdateWidget(DateSlotSelectionStep oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Reload slots if hours changed, date changed, or addons changed (for extended hours)
     if (oldWidget.selectedHours != widget.selectedHours ||
         oldWidget.selectedDate != widget.selectedDate ||
         oldWidget.selectedAddons.length != widget.selectedAddons.length) {
@@ -65,8 +67,12 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
       );
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
+      final suiteType = widget.selectedSuite?.value;
+      debugPrint('🏥 Loading slots for suite: $suiteType');
+
       final bookingsQuery = await _firestore
           .collection('bookings')
+          .where('suiteType', isEqualTo: suiteType)
           .where(
             'bookingDate',
             isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
@@ -75,7 +81,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
           .where('status', whereIn: ['confirmed', 'in_progress'])
           .get();
 
-      // Build set of booked time ranges
       final bookedRanges = <Map<String, int>>[];
       for (final doc in bookingsQuery.docs) {
         final data = doc.data();
@@ -95,7 +100,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
         }
       }
 
-      // Check which slots are available (not overlapping with booked ranges)
       final available = <String>[];
       final now = DateTime.now();
       final isToday =
@@ -103,7 +107,14 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
           widget.selectedDate.month == now.month &&
           widget.selectedDate.day == now.day;
 
-      // Check if user has purchased Extended Hours addon
+      // Find the last booking end time for custom slot insertion
+      int? lastBookingEndMins;
+      for (final range in bookedRanges) {
+        if (lastBookingEndMins == null || range['end']! > lastBookingEndMins) {
+          lastBookingEndMins = range['end'];
+        }
+      }
+
       final hasExtendedHours = widget.selectedAddons.any(
         (addon) => addon['code'] == 'extended_hours',
       );
@@ -111,46 +122,47 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
         includeExtended: hasExtendedHours,
       );
 
-      // Check if Priority Booking addon is active
       final hasPriorityBooking = widget.selectedAddons.any(
         (addon) => addon['code'] == 'priority_booking',
       );
+
+      debugPrint('🎯 hasPriorityBooking: $hasPriorityBooking');
 
       for (final slot in allTimeSlots) {
         final slotParts = slot.split(':');
         final slotHour = int.parse(slotParts[0]);
         final slotMinutes = slotHour * 60 + int.parse(slotParts[1]);
 
-        // Check if slot is in priority time (weekends or 6pm-10pm)
         final isWeekend =
             widget.selectedDate.weekday == DateTime.saturday ||
             widget.selectedDate.weekday == DateTime.sunday;
-        final isPriorityTime = (slotHour >= 18 && slotHour <= 22); // 6pm-10pm
+        final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
         final isPrioritySlot = isWeekend || isPriorityTime;
 
-        // ❌ Skip priority slots if user doesn't have Priority Booking addon
         if (isPrioritySlot && !hasPriorityBooking) {
           continue;
         }
 
-        // ❌ Skip past time slots for today
+        // Hard limit: Skip slots where 1-hour booking would exceed 22:00
+        const hardLimitMins = 22 * 60;
+        const minBookingMins = 60;
+        if (slotMinutes + minBookingMins > hardLimitMins) {
+          continue;
+        }
+
+        // Skip past time slots for today with grace period
         if (isToday) {
           final currentMinutes = now.hour * 60 + now.minute;
-          if (slotMinutes <= currentMinutes) {
-            continue; // This slot has already passed
+          const gracePeriodMins = 30;
+          if (slotMinutes + gracePeriodMins < currentMinutes) {
+            continue;
           }
         }
 
-        // Check if this slot + selected hours is available
-        // Need to check the entire duration range
-        final bookingEndMinutes = slotMinutes + (widget.selectedHours * 60);
-
+        // Check availability
         bool isAvailable = true;
         for (final range in bookedRanges) {
-          // Check if booking would overlap with any existing booking
-          // Overlap if: booking starts before range ends AND booking ends after range starts
-          if (slotMinutes < range['end']! &&
-              bookingEndMinutes > range['start']!) {
+          if (slotMinutes >= range['start']! && slotMinutes < range['end']!) {
             isAvailable = false;
             break;
           }
@@ -160,6 +172,52 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
           available.add(slot);
         }
       }
+
+      // Add custom slot after last booking (same as monthly)
+      if (lastBookingEndMins != null) {
+        final nextAvailableMins = lastBookingEndMins + 5;
+        final nextHour = nextAvailableMins ~/ 60;
+        final nextMin = nextAvailableMins % 60;
+
+        const hardLimitMins = 22 * 60;
+        const minBookingMins = 60;
+        final wouldExceedLimit =
+            nextAvailableMins + minBookingMins > hardLimitMins;
+
+        if (nextHour < 22 && !wouldExceedLimit) {
+          final customSlot =
+              '${nextHour.toString().padLeft(2, '0')}:${nextMin.toString().padLeft(2, '0')}';
+
+          final isWeekend =
+              widget.selectedDate.weekday == DateTime.saturday ||
+              widget.selectedDate.weekday == DateTime.sunday;
+          final isPriorityTime = (nextHour >= 18 && nextHour <= 22);
+          final isPrioritySlot = isWeekend || isPriorityTime;
+
+          final canAddSlot = !isPrioritySlot || hasPriorityBooking;
+
+          if (canAddSlot && !available.contains(customSlot)) {
+            if (isToday) {
+              final currentMinutes = now.hour * 60 + now.minute;
+              const gracePeriodMins = 30;
+              if (nextAvailableMins + gracePeriodMins > currentMinutes) {
+                available.insert(0, customSlot);
+              }
+            } else {
+              available.insert(0, customSlot);
+            }
+          }
+        }
+      }
+
+      // Sort slots chronologically
+      available.sort((a, b) {
+        final aParts = a.split(':');
+        final bParts = b.split(':');
+        final aMins = int.parse(aParts[0]) * 60 + int.parse(aParts[1]);
+        final bMins = int.parse(bParts[0]) * 60 + int.parse(bParts[1]);
+        return aMins.compareTo(bMins);
+      });
 
       if (mounted) {
         setState(() {
@@ -177,33 +235,24 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
   }
 
   void _handleSlotSelection(String slot) {
-    // Parse slot to set as start time
     final parts = slot.split(':');
     final hour = int.parse(parts[0]);
     final minute = int.parse(parts[1]);
 
     final startTime = TimeOfDay(hour: hour, minute: minute);
 
-    // Check if Extended Hours addon is active (adds +30 mins)
-    final hasExtendedHours = widget.selectedAddons.any(
-      (addon) => addon['code'] == 'extended_hours',
-    );
-    final extraMinutes = hasExtendedHours ? 30 : 0;
+    // Default 1-hour duration - same as monthly booking
+    final startMins = hour * 60 + minute;
+    final endMins = startMins + 60;
+    const hardLimitMins = 22 * 60;
 
-    // Set end time based on selected duration + extra minutes
-    int totalMinutes = (widget.selectedHours * 60) + minute + extraMinutes;
-    int endHour = hour + (totalMinutes ~/ 60);
-    int endMinute = totalMinutes % 60;
-
-    // Handle day overflow
-    if (endHour >= 24) {
-      endHour = 23;
-      endMinute = 59;
+    TimeOfDay endTime;
+    if (endMins > hardLimitMins) {
+      endTime = const TimeOfDay(hour: 22, minute: 0);
+    } else {
+      endTime = TimeOfDay(hour: endMins ~/ 60, minute: endMins % 60);
     }
 
-    final endTime = TimeOfDay(hour: endHour, minute: endMinute);
-
-    // Update parent state
     widget.onTimeSlotSelected(slot);
     widget.onStartTimeSelected(startTime);
     widget.onEndTimeSelected(endTime);
@@ -212,20 +261,138 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
   void _setDuration(int hours) {
     if (widget.startTime == null) return;
 
-    // Check if Extended Hours addon is active (adds +30 mins)
+    // Check for Extended Hours addon
     final hasExtendedHours = widget.selectedAddons.any(
       (addon) => addon['code'] == 'extended_hours',
     );
-    final extraMinutes = hasExtendedHours ? 30 : 0;
 
-    int totalMinutes = (hours * 60) + widget.startTime!.minute + extraMinutes;
-    int endHour = widget.startTime!.hour + (totalMinutes ~/ 60);
-    int endMinute = totalMinutes % 60;
+    // Calculate end time WITHOUT Extended Hours first
+    final startTotalMins =
+        widget.startTime!.hour * 60 + widget.startTime!.minute;
+    final durationMins = hours * 60;
+    final baseEndTotalMins = startTotalMins + durationMins;
+    int baseEndHour = baseEndTotalMins ~/ 60;
+    int baseEndMinute = baseEndTotalMins % 60;
 
-    // Handle day overflow
-    if (endHour >= 24) {
-      endHour = 23;
-      endMinute = 59;
+    // Check if user has Priority Booking addon
+    final hasPriorityBooking = widget.selectedAddons.any(
+      (addon) => addon['code'] == 'priority_booking',
+    );
+
+    // Check if end time falls into priority hours
+    final isWeekend =
+        widget.selectedDate.weekday == DateTime.saturday ||
+        widget.selectedDate.weekday == DateTime.sunday;
+
+    if (!hasPriorityBooking) {
+      if (isWeekend) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                '❌ Weekend bookings require Priority Booking addon\nAdd the addon to book on Saturdays and Sundays',
+              ),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      } else if (baseEndHour >= 18) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                '❌ This duration would extend into priority hours (after 17:00)\nYou need Priority Booking addon or choose shorter duration',
+              ),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    // Hard limit: No booking can extend beyond 22:00
+    const hardLimitMins = 22 * 60;
+
+    int endHour;
+    int endMinute;
+
+    if (baseEndTotalMins > hardLimitMins) {
+      endHour = 22;
+      endMinute = 0;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '⏰ Booking capped at 22:00 (10 PM) - Hard closing time',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } else {
+      if (hasExtendedHours) {
+        final withExtraMins = baseEndTotalMins + 30;
+
+        if (withExtraMins > hardLimitMins) {
+          endHour = 22;
+          endMinute = 0;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  '⚠️ Extended Hours +30 mins limited - Capped at 22:00 hard limit',
+                ),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+        } else {
+          endHour = withExtraMins ~/ 60;
+          endMinute = withExtraMins % 60;
+        }
+      } else {
+        endHour = baseEndHour;
+        endMinute = baseEndMinute;
+      }
+    }
+
+    // Check if user is late for the selected slot (same as monthly)
+    final now = DateTime.now();
+    final isToday =
+        widget.selectedDate.year == now.year &&
+        widget.selectedDate.month == now.month &&
+        widget.selectedDate.day == now.day;
+
+    if (isToday && widget.startTime != null) {
+      final selectedSlotMins =
+          widget.startTime!.hour * 60 + widget.startTime!.minute;
+      final currentMins = now.hour * 60 + now.minute;
+
+      if (currentMins > selectedSlotMins) {
+        final lateByMins = currentMins - selectedSlotMins;
+
+        if (lateByMins <= 30) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '⚠️ You are $lateByMins minutes late for this slot\n'
+                  'End time remains ${endHour.toString().padLeft(2, '0')}:${endMinute.toString().padLeft(2, '0')} - '
+                  'You will get ${((endHour * 60 + endMinute) - currentMins) ~/ 60}h ${((endHour * 60 + endMinute) - currentMins) % 60}m',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        }
+      }
     }
 
     widget.onEndTimeSelected(TimeOfDay(hour: endHour, minute: endMinute));
@@ -239,6 +406,46 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
     final hours = totalMinutes ~/ 60;
     final minutes = totalMinutes % 60;
     return '${hours}h ${minutes}m';
+  }
+
+  Widget _buildTimeDisplay({
+    required String label,
+    required TimeOfDay? time,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF006876),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            time != null
+                ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
+                : '--:--',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -308,128 +515,12 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
             ),
           ),
           const SizedBox(height: 24),
-          Row(
-            children: [
-              const Text(
-                'Available Time Slots',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF006876),
-                ),
-              ),
-              if (widget.selectedAddons.any(
-                (a) => a['code'] == 'extended_hours',
-              )) ...[
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF9800),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.star, size: 14, color: Colors.white),
-                      SizedBox(width: 4),
-                      Text(
-                        'Extended Hours Active',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Priority Booking Info
-          if (widget.selectedAddons.any((a) => a['code'] == 'priority_booking'))
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFDE7),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFFFC107)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.workspace_premium,
-                    color: Color(0xFFFFC107),
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Priority Booking Active: You can now book weekend slots and 6pm-10pm time slots!',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.amber.shade900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          // Extended Hours Info
-          if (widget.selectedAddons.any((a) => a['code'] == 'extended_hours'))
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF3E0),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFFF9800)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.access_time,
-                    color: Color(0xFFFF9800),
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Extended Hours Active: 11PM-12AM slots unlocked + 30 minutes added to each booking!',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.orange.shade900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue.shade200),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Select a time slot to start your booking. You can adjust the exact start and end time after selection.',
-                    style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
-                  ),
-                ),
-              ],
+          const Text(
+            'Available Time Slots',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF006876),
             ),
           ),
           const SizedBox(height: 12),
@@ -462,19 +553,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
               runSpacing: 12,
               children: _availableSlots.map((slot) {
                 final isSelected = widget.selectedTimeSlot == slot;
-                final isExtendedHour = AppConstants.extendedTimeSlots.contains(
-                  slot,
-                );
-
-                // Check if this is a priority time slot
-                final slotParts = slot.split(':');
-                final slotHour = int.parse(slotParts[0]);
-                final isWeekend =
-                    widget.selectedDate.weekday == DateTime.saturday ||
-                    widget.selectedDate.weekday == DateTime.sunday;
-                final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
-                final isPrioritySlot = isWeekend || isPriorityTime;
-
                 return InkWell(
                   onTap: () => _handleSlotSelection(slot),
                   child: Container(
@@ -485,59 +563,24 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
                     decoration: BoxDecoration(
                       color: isSelected
                           ? const Color(0xFF006876)
-                          : isPrioritySlot
-                          ? const Color(0xFFFFF9C4) // Light yellow for priority
-                          : isExtendedHour
-                          ? const Color(0xFFFFF3E0)
                           : Colors.white,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: isSelected
                             ? const Color(0xFF006876)
-                            : isPrioritySlot
-                            ? const Color(0xFFFFC107)
-                            : isExtendedHour
-                            ? const Color(0xFFFF9800)
                             : Colors.grey.shade300,
                         width: 2,
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isPrioritySlot && !isSelected)
-                          const Padding(
-                            padding: EdgeInsets.only(right: 6),
-                            child: Icon(
-                              Icons.workspace_premium,
-                              size: 16,
-                              color: Color(0xFFFFC107),
-                            ),
-                          )
-                        else if (isExtendedHour && !isSelected)
-                          const Padding(
-                            padding: EdgeInsets.only(right: 6),
-                            child: Icon(
-                              Icons.star,
-                              size: 16,
-                              color: Color(0xFFFF9800),
-                            ),
-                          ),
-                        Text(
-                          slot,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: isSelected
-                                ? Colors.white
-                                : isPrioritySlot
-                                ? const Color(0xFFFFC107)
-                                : isExtendedHour
-                                ? const Color(0xFFFF9800)
-                                : const Color(0xFF006876),
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      slot,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xFF006876),
+                      ),
                     ),
                   ),
                 );
@@ -545,62 +588,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
             ),
           const SizedBox(height: 24),
           if (widget.selectedTimeSlot != null) ...[
-            // Show selected hours prominently
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF006876).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF006876), width: 2),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.access_time,
-                    color: Color(0xFF006876),
-                    size: 32,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Booking Duration',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${widget.selectedHours} Hour${widget.selectedHours > 1 ? 's' : ''}',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF006876),
-                          ),
-                        ),
-                        if (widget.startTime != null &&
-                            widget.endTime != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            '${widget.selectedTimeSlot} - ${widget.endTime!.hour.toString().padLeft(2, '0')}:${widget.endTime!.minute.toString().padLeft(2, '0')}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
             const Text(
               'Select Duration',
               style: TextStyle(
@@ -608,11 +595,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF006876),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Choose how long you need the suite',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 12),
             Row(
@@ -630,186 +612,75 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
             const Text(
               'Or Adjust Manually',
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
                 color: Color(0xFF006876),
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Fine-tune your exact start and end time',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF90D26D).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF90D26D)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.check_circle, color: Color(0xFF90D26D)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Booking Selected: ${widget.selectedDate.day}/${widget.selectedDate.month}/${widget.selectedDate.year}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF006876),
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Starting at: ${widget.selectedTimeSlot}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade700,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTimeDisplay(
+                    label: 'Start Time',
+                    time: widget.startTime,
+                    subtitle: 'From slot selection',
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildTimePicker(
-                          context,
-                          'Start Time',
-                          widget.startTime,
-                          (picked) {
-                            widget.onStartTimeSelected(picked);
-                            // Update timeSlot to match start time
-                            widget.onTimeSlotSelected(
-                              '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}',
-                            );
-
-                            // Validate end time if already selected
-                            if (widget.endTime != null) {
-                              final startMinutes =
-                                  picked.hour * 60 + picked.minute;
-                              final endMinutes =
-                                  widget.endTime!.hour * 60 +
-                                  widget.endTime!.minute;
-                              if (endMinutes <= startMinutes) {
-                                // Auto-adjust end time to 1 hour after new start time
-                                final newEndHour = picked.hour + 1;
-                                final newEndMinute = picked.minute;
-                                if (newEndHour < 24) {
-                                  widget.onEndTimeSelected(
-                                    TimeOfDay(
-                                      hour: newEndHour,
-                                      minute: newEndMinute,
-                                    ),
-                                  );
-                                }
-                              }
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildTimePicker(
-                          context,
-                          'End Time',
-                          widget.endTime,
-                          (picked) {
-                            if (widget.startTime == null) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Please select start time first',
-                                  ),
-                                  backgroundColor: Colors.orange,
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                              return;
-                            }
-                            final startMinutes =
-                                widget.startTime!.hour * 60 +
-                                widget.startTime!.minute;
-                            final endMinutes = picked.hour * 60 + picked.minute;
-                            if (endMinutes <= startMinutes) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'End time must be after start time',
-                                  ),
-                                  backgroundColor: Colors.red,
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                              return;
-                            }
-                            widget.onEndTimeSelected(picked);
-                          },
-                        ),
-                      ),
-                    ],
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildTimeDisplay(
+                    label: 'End Time',
+                    time: widget.endTime,
+                    subtitle: 'Auto-calculated',
                   ),
-                  if (widget.startTime != null && widget.endTime != null) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF006876).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFF006876),
-                          width: 2,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.timer,
+                ),
+              ],
+            ),
+            if (widget.startTime != null && widget.endTime != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF006876).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF006876), width: 2),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.timer, color: Color(0xFF006876), size: 24),
+                    const SizedBox(width: 12),
+                    Column(
+                      children: [
+                        const Text(
+                          'Total Duration',
+                          style: TextStyle(
+                            fontSize: 12,
                             color: Color(0xFF006876),
-                            size: 24,
+                            fontWeight: FontWeight.w500,
                           ),
-                          const SizedBox(width: 12),
-                          Column(
-                            children: [
-                              const Text(
-                                'Total Duration',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF006876),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _calculateDuration(),
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF006876),
-                                ),
-                              ),
-                            ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _calculateDuration(),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF006876),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
+            ],
           ],
         ],
       ),
@@ -817,12 +688,21 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
   }
 
   Widget _buildDurationButton(int hours, String label) {
+    // Check if user has Extended Hours addon (same logic as monthly)
+    final hasExtendedHours = widget.selectedAddons.any(
+      (addon) => addon['code'] == 'extended_hours',
+    );
+
+    // Calculate expected duration WITH Extended Hours bonus
+    final extraMinutes = hasExtendedHours ? 30 : 0;
+    final expectedDuration = (hours * 60) + extraMinutes;
+
     final isSelected =
         widget.startTime != null &&
         widget.endTime != null &&
         (widget.endTime!.hour * 60 + widget.endTime!.minute) -
                 (widget.startTime!.hour * 60 + widget.startTime!.minute) ==
-            hours * 60;
+            expectedDuration;
 
     return InkWell(
       onTap: () {
@@ -831,9 +711,8 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Please select a start time first'),
+              content: Text('Please select a time slot first'),
               backgroundColor: Colors.orange,
-              duration: Duration(seconds: 2),
             ),
           );
         }
@@ -845,8 +724,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
           gradient: isSelected
               ? const LinearGradient(
                   colors: [Color(0xFF006876), Color(0xFF008C9E)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
                 )
               : null,
           color: isSelected ? null : Colors.grey.shade100,
@@ -855,15 +732,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
             color: isSelected ? const Color(0xFF006876) : Colors.grey.shade300,
             width: isSelected ? 2.5 : 1.5,
           ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFF006876).withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
         ),
         child: Column(
           children: [
@@ -884,73 +752,6 @@ class _DateSlotSelectionStepState extends State<DateSlotSelectionStep> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildTimePicker(
-    BuildContext context,
-    String label,
-    TimeOfDay? time,
-    Function(TimeOfDay) onTimePicked,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF006876),
-          ),
-        ),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: () async {
-            final picked = await showTimePicker(
-              context: context,
-              initialTime: time ?? TimeOfDay(hour: 9, minute: 0),
-              builder: (context, child) {
-                return Theme(
-                  data: ThemeData.light().copyWith(
-                    colorScheme: const ColorScheme.light(
-                      primary: Color(0xFF006876),
-                    ),
-                  ),
-                  child: child!,
-                );
-              },
-            );
-            if (picked != null) {
-              onTimePicked(picked);
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFF006876), width: 2),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  time != null
-                      ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
-                      : 'Select',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: time != null ? const Color(0xFF006876) : Colors.grey,
-                  ),
-                ),
-                const Icon(Icons.access_time, color: Color(0xFF006876)),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

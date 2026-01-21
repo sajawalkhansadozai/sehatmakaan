@@ -42,22 +42,8 @@ class BookingSummaryWidget extends StatelessWidget {
       );
       var rate = suite.baseRate.toDouble();
 
-      // Check if this is a priority slot (6PM-10PM or weekend)
-      bool isPrioritySlot = false;
-      if (selectedTimeSlot != null) {
-        final slotParts = selectedTimeSlot!.split(':');
-        final slotHour = int.parse(slotParts[0]);
-        final isWeekend =
-            selectedDate.weekday == DateTime.saturday ||
-            selectedDate.weekday == DateTime.sunday;
-        final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
-        isPrioritySlot = isWeekend || isPriorityTime;
-      }
-
-      // Apply 1.5x rate for priority slots
-      if (isPrioritySlot) {
-        rate = rate * 1.5;
-      }
+      // Priority Booking addon grants access without additional rate charges
+      // Users pay PKR 5,000 for addon, then use priority slots at base rate
 
       basePrice = rate * selectedHours;
       total += basePrice;
@@ -135,7 +121,7 @@ class BookingSummaryWidget extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Priority Slot - 1.5x Rate Applied',
+                          'Priority Slot - Addon Required',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,

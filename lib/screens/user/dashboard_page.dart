@@ -697,7 +697,20 @@ class _DashboardPageState extends State<DashboardPage> {
                 color: Color(0xFF006876),
               ),
             ),
-            TextButton(onPressed: () {}, child: const Text('View All')),
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AllBookingsPage(
+                      bookings: _recentBookings,
+                      userSession: widget.userSession,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('View All'),
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -716,12 +729,47 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
         if (_recentBookings.isNotEmpty)
-          ..._recentBookings.map(
-            (booking) => BookingCard(
-              booking: booking,
-              capitalizeFirst: DashboardUtils.capitalizeFirst,
-              formatDate: DashboardUtils.formatDate,
-              getStatusColor: DashboardUtils.getStatusColor,
+          Container(
+            constraints: const BoxConstraints(maxHeight: 400),
+            child: ListView.builder(
+              shrinkWrap: true,
+              physics: const BouncingScrollPhysics(),
+              itemCount: _recentBookings.length > 3
+                  ? 3
+                  : _recentBookings.length,
+              itemBuilder: (context, index) {
+                final booking = _recentBookings[index];
+                return BookingCard(
+                  booking: booking,
+                  capitalizeFirst: DashboardUtils.capitalizeFirst,
+                  formatDate: DashboardUtils.formatDate,
+                  getStatusColor: DashboardUtils.getStatusColor,
+                );
+              },
+            ),
+          ),
+        if (_recentBookings.length > 3)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Center(
+              child: TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AllBookingsPage(
+                        bookings: _recentBookings,
+                        userSession: widget.userSession,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.arrow_forward),
+                label: Text(
+                  'View ${_recentBookings.length - 3} more bookings',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
             ),
           ),
       ],
@@ -1190,5 +1238,73 @@ class _DashboardPageState extends State<DashboardPage> {
         ).showSnackBar(SnackBar(content: Text('Error sending request: $e')));
       }
     }
+  }
+}
+
+/// All Bookings Page - Shows all upcoming bookings with full details
+class AllBookingsPage extends StatelessWidget {
+  final List<Map<String, dynamic>> bookings;
+  final Map<String, dynamic> userSession;
+
+  const AllBookingsPage({
+    super.key,
+    required this.bookings,
+    required this.userSession,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFE6F7F9),
+      appBar: AppBar(
+        title: const Text('All Upcoming Bookings'),
+        backgroundColor: const Color(0xFF006876),
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: bookings.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.calendar_today_outlined,
+                    size: 64,
+                    color: const Color(0xFF006876).withValues(alpha: 0.3),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No Upcoming Bookings',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF006876).withValues(alpha: 0.7),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your upcoming bookings will appear here',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: const Color(0xFF006876).withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: bookings.length,
+              itemBuilder: (context, index) {
+                final booking = bookings[index];
+                return BookingCard(
+                  booking: booking,
+                  capitalizeFirst: DashboardUtils.capitalizeFirst,
+                  formatDate: DashboardUtils.formatDate,
+                  getStatusColor: DashboardUtils.getStatusColor,
+                );
+              },
+            ),
+    );
   }
 }

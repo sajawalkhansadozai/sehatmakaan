@@ -347,14 +347,13 @@ class AppConstants {
     '22:00',
   ];
 
-  /// Extended Time Slots (Available with Extended Hours addon)
+  /// Extended Time Slots (Currently disabled - office closes at 22:00)
   static final List<String> extendedTimeSlots = ['23:00', '00:00'];
 
   /// Get all time slots including extended if addon is purchased
+  /// Note: Extended slots are currently disabled due to 22:00 closing time
   static List<String> getAllTimeSlots({bool includeExtended = false}) {
-    if (includeExtended) {
-      return [...timeSlots, ...priorityTimeSlots, ...extendedTimeSlots];
-    }
+    // Always return slots up to 22:00 only
     return [...timeSlots, ...priorityTimeSlots];
   }
 

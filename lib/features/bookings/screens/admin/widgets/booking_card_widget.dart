@@ -420,7 +420,7 @@ class _BookingCardWidgetState extends State<BookingCardWidget> {
                                             ),
                                             const SizedBox(width: 4),
                                             const Text(
-                                              'Priority Rate (1.5x)',
+                                              'Priority Slot',
                                               style: TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.bold,
@@ -446,7 +446,7 @@ class _BookingCardWidgetState extends State<BookingCardWidget> {
                                     children: [
                                       Text(
                                         widget.booking['isPrioritySlot'] == true
-                                            ? 'Subtotal (${durationHours}h ${durationMins}m @ priority rate)'
+                                            ? 'Subtotal (${durationHours}h ${durationMins}m @ priority slot)'
                                             : 'Base Rate (${durationHours}h ${durationMins}m)',
                                         style: const TextStyle(fontSize: 13),
                                       ),
