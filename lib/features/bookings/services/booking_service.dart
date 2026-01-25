@@ -1,13 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import '../models/booking_model.dart';
+import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehat_makaan_flutter/features/bookings/models/booking_model.dart';
 
 /// Booking Service for Firebase Firestore
 /// Handles all booking operations including create, read, update, delete
 class BookingService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// Create new booking
+  /// Create new booking with atomic transaction
   Future<Map<String, dynamic>> createBooking({
     required String userId,
     required String suiteType,
@@ -23,7 +24,37 @@ class BookingService {
     String? paymentId,
   }) async {
     try {
-      // Check for booking conflicts before creating
+      // ============================================================================
+      // GOD MODE: SYSTEM CHECKS
+      // ============================================================================
+
+      // 1. Check Maintenance Mode
+      final systemSettings = await _getSystemSettings();
+      final isMaintenanceMode = systemSettings['isMaintenanceMode'] ?? false;
+      final maintenanceMessage =
+          systemSettings['maintenanceMessage'] ??
+          'The system is currently under maintenance. Please try again later.';
+
+      if (isMaintenanceMode) {
+        return {'success': false, 'error': maintenanceMessage};
+      }
+
+      // 2. Check Shadow Ban
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        final userData = userDoc.data()!;
+        final isShadowBanned = userData['isShadowBanned'] ?? false;
+
+        if (isShadowBanned) {
+          return {
+            'success': false,
+            'error':
+                'Action restricted. Please contact support if you believe this is an error.',
+          };
+        }
+      }
+
+      // PRE-TRANSACTION VALIDATION: Check for conflicts (queries not allowed in transaction)
       final hasConflictResult = await hasConflict(
         date: bookingDate,
         suiteType: suiteType,
@@ -39,30 +70,138 @@ class BookingService {
         };
       }
 
-      final bookingRef = await _firestore.collection('bookings').add({
-        'userId': userId,
-        'suiteType': suiteType,
-        'bookingDate': Timestamp.fromDate(bookingDate),
-        'timeSlot': timeSlot,
-        'startTime': startTime != null ? Timestamp.fromDate(startTime) : null,
-        'durationMins': durationMins,
-        'baseRate': baseRate,
-        'addons': addons,
-        'totalAmount': totalAmount,
-        'status': 'confirmed',
-        'cancellationType': null,
-        'paymentMethod': paymentMethod,
-        'paymentStatus': paymentId != null ? 'paid' : 'pending',
-        'paymentId': paymentId,
-        'subscriptionId': subscriptionId,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+      // If subscription booking, verify balance before transaction
+      if (subscriptionId != null) {
+        final subscriptionDoc = await _firestore
+            .collection('subscriptions')
+            .doc(subscriptionId)
+            .get();
+
+        if (!subscriptionDoc.exists) {
+          return {'success': false, 'error': 'Subscription not found'};
+        }
+
+        final subscriptionData = subscriptionDoc.data()!;
+        final hours = subscriptionData['remainingHours'] as int? ?? 0;
+        final mins = subscriptionData['remainingMinutes'] as int? ?? 0;
+        final totalMins = (hours * 60) + mins;
+
+        if (totalMins < durationMins) {
+          return {
+            'success': false,
+            'error': 'Insufficient subscription balance',
+          };
+        }
+      }
+
+      String? bookingId;
+
+      // Calculate time range for schedule lock
+      final startMinutes = _timeSlotToMinutes(timeSlot);
+      final endMinutes = startMinutes + durationMins;
+      const bufferMins = AppConstants.turnoverBufferMinutes;
+
+      // ATOMIC TRANSACTION: Schedule lock + Booking + Subscription update together
+      await _firestore.runTransaction((transaction) async {
+        // 1. Check schedule document for conflicts (INSIDE transaction)
+        final scheduleDocId = _getScheduleDocId(suiteType, bookingDate);
+        final scheduleRef = _firestore
+            .collection('schedules')
+            .doc(scheduleDocId);
+        final scheduleDoc = await transaction.get(scheduleRef);
+
+        List<Map<String, dynamic>> bookedRanges = [];
+        if (scheduleDoc.exists) {
+          final data = scheduleDoc.data()!;
+          bookedRanges = List<Map<String, dynamic>>.from(data['ranges'] ?? []);
+        }
+
+        // Check for conflicts with buffer time
+        for (final range in bookedRanges) {
+          final existingStart = range['start'] as int;
+          final existingEnd = range['end'] as int;
+
+          if (startMinutes < (existingEnd + bufferMins) &&
+              (endMinutes + bufferMins) > existingStart) {
+            throw Exception('Time slot conflict detected in transaction');
+          }
+        }
+
+        // 2. Add new booking to schedule
+        bookedRanges.add({
+          'start': startMinutes,
+          'end': endMinutes,
+          'bookingId': null, // Will be set after creating booking
+        });
+
+        transaction.set(scheduleRef, {
+          'suiteType': suiteType,
+          'date': Timestamp.fromDate(bookingDate),
+          'ranges': bookedRanges,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // 3. Create booking reference
+        final bookingRef = _firestore.collection('bookings').doc();
+        bookingId = bookingRef.id;
+
+        // Update the schedule to include bookingId
+        bookedRanges.last['bookingId'] = bookingId;
+        transaction.update(scheduleRef, {'ranges': bookedRanges});
+
+        transaction.set(bookingRef, {
+          'userId': userId,
+          'suiteType': suiteType,
+          'bookingDate': Timestamp.fromDate(bookingDate),
+          'timeSlot': timeSlot,
+          'startTime': startTime != null ? Timestamp.fromDate(startTime) : null,
+          'durationMins': durationMins,
+          'baseRate': baseRate,
+          'addons': addons,
+          'totalAmount': totalAmount,
+          'status': 'confirmed',
+          'cancellationType': null,
+          'paymentMethod': paymentMethod,
+          'paymentStatus': paymentId != null ? 'paid' : 'pending',
+          'paymentId': paymentId,
+          'subscriptionId': subscriptionId,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        // If subscription booking, deduct hours atomically
+        if (subscriptionId != null) {
+          final subscriptionRef = _firestore
+              .collection('subscriptions')
+              .doc(subscriptionId);
+          final subscriptionDoc = await transaction.get(subscriptionRef);
+
+          if (subscriptionDoc.exists) {
+            final data = subscriptionDoc.data()!;
+            final hours = data['remainingHours'] as int? ?? 0;
+            final mins = data['remainingMinutes'] as int? ?? 0;
+            final totalMins = (hours * 60) + mins;
+
+            // Re-verify balance inside transaction
+            if (totalMins >= durationMins) {
+              final newTotal = totalMins - durationMins;
+              final newHours = newTotal ~/ 60;
+              final newMins = newTotal % 60;
+
+              transaction.update(subscriptionRef, {
+                'remainingHours': newHours,
+                'remainingMinutes': newMins,
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+            }
+          }
+        }
       });
 
-      debugPrint('✅ Booking created: ${bookingRef.id}');
+      debugPrint('✅ Booking created: $bookingId');
       return {
         'success': true,
-        'bookingId': bookingRef.id,
+        'bookingId': bookingId,
         'message': 'Booking created successfully',
       };
     } catch (e) {
@@ -142,20 +281,92 @@ class BookingService {
   }
 
   /// Cancel booking
+  /// Cancel booking and release the slot back to availability
+  ///
+  /// This atomically:
+  /// 1. Removes the time range from schedules document (makes slot available)
+  /// 2. Updates booking status to 'cancelled'
+  /// 3. If subscription booking, refunds the hours
   Future<Map<String, dynamic>> cancelBooking({
     required String bookingId,
     required String cancellationType,
     String? refundReason,
   }) async {
     try {
-      await _firestore.collection('bookings').doc(bookingId).update({
-        'status': 'cancelled',
-        'cancellationType': cancellationType,
-        'cancelledAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+      // Get booking data to extract schedule information
+      final bookingDoc = await _firestore
+          .collection('bookings')
+          .doc(bookingId)
+          .get();
+
+      if (!bookingDoc.exists) {
+        return {'success': false, 'error': 'Booking not found'};
+      }
+
+      final bookingData = bookingDoc.data()!;
+      final suiteType = bookingData['suiteType'] as String;
+      final bookingDate = (bookingData['bookingDate'] as Timestamp).toDate();
+      final subscriptionId = bookingData['subscriptionId'] as String?;
+      final durationMins = bookingData['durationMins'] as int? ?? 0;
+
+      // ATOMIC TRANSACTION: Remove from schedule + Update status + Refund hours
+      await _firestore.runTransaction((transaction) async {
+        // 1. Remove booking from schedule document
+        final scheduleDocId = _getScheduleDocId(suiteType, bookingDate);
+        final scheduleRef = _firestore
+            .collection('schedules')
+            .doc(scheduleDocId);
+        final scheduleDoc = await transaction.get(scheduleRef);
+
+        if (scheduleDoc.exists) {
+          final data = scheduleDoc.data()!;
+          List<Map<String, dynamic>> ranges = List<Map<String, dynamic>>.from(
+            data['ranges'] ?? [],
+          );
+
+          // Remove this booking's range
+          ranges.removeWhere((range) => range['bookingId'] == bookingId);
+
+          transaction.update(scheduleRef, {
+            'ranges': ranges,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        // 2. Update booking status
+        final bookingRef = _firestore.collection('bookings').doc(bookingId);
+        transaction.update(bookingRef, {
+          'status': 'cancelled',
+          'cancellationType': cancellationType,
+          'cancelledAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        // 3. If subscription booking, refund hours
+        if (subscriptionId != null && durationMins > 0) {
+          final subscriptionRef = _firestore
+              .collection('subscriptions')
+              .doc(subscriptionId);
+          final subscriptionDoc = await transaction.get(subscriptionRef);
+
+          if (subscriptionDoc.exists) {
+            final data = subscriptionDoc.data()!;
+            final hours = data['remainingHours'] as int? ?? 0;
+            final mins = data['remainingMinutes'] as int? ?? 0;
+            final totalMins = (hours * 60) + mins + durationMins;
+            final newHours = totalMins ~/ 60;
+            final newMins = totalMins % 60;
+
+            transaction.update(subscriptionRef, {
+              'remainingHours': newHours,
+              'remainingMinutes': newMins,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          }
+        }
       });
 
-      debugPrint('✅ Booking cancelled: $bookingId');
+      debugPrint('✅ Booking cancelled and slot released: $bookingId');
       return {'success': true, 'message': 'Booking cancelled successfully'};
     } catch (e) {
       debugPrint('❌ Cancel booking error: $e');
@@ -211,56 +422,71 @@ class BookingService {
     }
   }
 
-  /// Get available time slots for a date
+  /// Get available time slots - DEPRECATED
+  /// Use SlotAvailabilityService.loadAvailableSlots() instead
+  /// This maintains a single source of truth for availability logic
+  @Deprecated('Use SlotAvailabilityService.loadAvailableSlots() instead')
   Future<List<String>> getAvailableSlots({
     required DateTime date,
     required String suiteType,
   }) async {
-    try {
-      final startOfDay = DateTime(date.year, date.month, date.day);
-      final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
-
-      final bookings = await _firestore
-          .collection('bookings')
-          .where('suiteType', isEqualTo: suiteType)
-          .where(
-            'bookingDate',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
-          )
-          .where(
-            'bookingDate',
-            isLessThanOrEqualTo: Timestamp.fromDate(endOfDay),
-          )
-          .where('status', isEqualTo: 'confirmed')
-          .get();
-
-      final bookedSlots = bookings.docs
-          .map((doc) => doc.data()['timeSlot'] as String)
-          .toList();
-
-      // Generate all possible slots (9 AM - 9 PM)
-      final allSlots = <String>[];
-      for (int hour = 9; hour < 21; hour++) {
-        allSlots.add('${hour.toString().padLeft(2, '0')}:00');
-      }
-
-      // Remove booked slots
-      final availableSlots = allSlots
-          .where((slot) => !bookedSlots.contains(slot))
-          .toList();
-
-      return availableSlots;
-    } catch (e) {
-      debugPrint('❌ Get available slots error: $e');
-      return [];
-    }
+    debugPrint(
+      '⚠️ DEPRECATED: Use SlotAvailabilityService.loadAvailableSlots() for consistency',
+    );
+    return [];
   }
 
-  /// Delete booking
+  /// Delete booking and release the slot back to availability
+  ///
+  /// This atomically:
+  /// 1. Removes the time range from schedules document (makes slot available)
+  /// 2. Deletes the booking document
   Future<Map<String, dynamic>> deleteBooking(String bookingId) async {
     try {
-      await _firestore.collection('bookings').doc(bookingId).delete();
-      debugPrint('✅ Booking deleted: $bookingId');
+      // Get booking data to extract schedule information
+      final bookingDoc = await _firestore
+          .collection('bookings')
+          .doc(bookingId)
+          .get();
+
+      if (!bookingDoc.exists) {
+        return {'success': false, 'error': 'Booking not found'};
+      }
+
+      final bookingData = bookingDoc.data()!;
+      final suiteType = bookingData['suiteType'] as String;
+      final bookingDate = (bookingData['bookingDate'] as Timestamp).toDate();
+
+      // ATOMIC TRANSACTION: Remove from schedule + Delete booking
+      await _firestore.runTransaction((transaction) async {
+        // 1. Remove booking from schedule document
+        final scheduleDocId = _getScheduleDocId(suiteType, bookingDate);
+        final scheduleRef = _firestore
+            .collection('schedules')
+            .doc(scheduleDocId);
+        final scheduleDoc = await transaction.get(scheduleRef);
+
+        if (scheduleDoc.exists) {
+          final data = scheduleDoc.data()!;
+          List<Map<String, dynamic>> ranges = List<Map<String, dynamic>>.from(
+            data['ranges'] ?? [],
+          );
+
+          // Remove this booking's range
+          ranges.removeWhere((range) => range['bookingId'] == bookingId);
+
+          transaction.update(scheduleRef, {
+            'ranges': ranges,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        // 2. Delete booking
+        final bookingRef = _firestore.collection('bookings').doc(bookingId);
+        transaction.delete(bookingRef);
+      });
+
+      debugPrint('✅ Booking deleted and slot released: $bookingId');
       return {'success': true, 'message': 'Booking deleted successfully'};
     } catch (e) {
       debugPrint('❌ Delete booking error: $e');
@@ -396,7 +622,8 @@ class BookingService {
     }
   }
 
-  /// Check for booking conflicts (overlapping time slots)
+  /// Check for booking conflicts with buffer time (overlapping time slots)
+  /// Uses AppConstants.turnoverBufferMinutes for mandatory cleaning/turnover buffer
   Future<bool> hasConflict({
     required DateTime date,
     required String suiteType,
@@ -404,6 +631,8 @@ class BookingService {
     required int durationMins,
   }) async {
     try {
+      const bufferMins = AppConstants.turnoverBufferMinutes;
+
       // Parse time slot to minutes (e.g., "14:00" -> 840 minutes)
       final timeSlotParts = timeSlot.split(':');
       final startMinutes =
@@ -429,7 +658,7 @@ class BookingService {
           .where('status', isEqualTo: 'confirmed')
           .get();
 
-      // Check each booking for time overlap
+      // Check each booking for time overlap WITH BUFFER TIME
       for (final doc in bookings.docs) {
         final data = doc.data();
         final existingSlot = data['timeSlot'] as String?;
@@ -444,13 +673,14 @@ class BookingService {
             (existingParts.length > 1 ? int.parse(existingParts[1]) : 0);
         final existingEnd = existingStart + existingDuration;
 
-        // Check if time ranges overlap
-        // Overlap occurs if: new start < existing end AND new end > existing start
-        if (startMinutes < existingEnd && endMinutes > existingStart) {
+        // BUFFER-SAFE CONFLICT LOGIC:
+        // Conflict if: newStart < (existingEnd + buffer) AND (newEnd + buffer) > existingStart
+        if (startMinutes < (existingEnd + bufferMins) &&
+            (endMinutes + bufferMins) > existingStart) {
           debugPrint(
-            '⚠️ Booking conflict detected: '
+            '⚠️ Booking conflict detected (with ${bufferMins}min buffer): '
             'Requested $timeSlot-${_minutesToTime(endMinutes)} '
-            'overlaps with $existingSlot-${_minutesToTime(existingEnd)}',
+            'conflicts with $existingSlot-${_minutesToTime(existingEnd)}',
           );
           return true; // Conflict found
         }
@@ -509,7 +739,7 @@ class BookingService {
     }
   }
 
-  /// Reschedule booking to new date and time
+  /// Reschedule booking to new date and time with atomic transaction
   Future<Map<String, dynamic>> rescheduleBooking({
     required String bookingId,
     required DateTime newDate,
@@ -543,7 +773,7 @@ class BookingService {
       final durationMins =
           newDurationMins ?? (bookingData['durationMins'] as int? ?? 60);
 
-      // Check if new slot has conflict
+      // PRE-TRANSACTION: Check if new slot has conflict (with 15-min buffer)
       final hasConflictResult = await hasConflict(
         date: newDate,
         suiteType: suiteType,
@@ -559,26 +789,93 @@ class BookingService {
         };
       }
 
-      // Update booking
-      await _firestore.collection('bookings').doc(bookingId).update({
-        'bookingDate': Timestamp.fromDate(newDate),
-        'timeSlot': newTimeSlot,
-        'startTime': Timestamp.fromDate(newDate),
-        'rescheduleCount': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      // Create notification
       final userId = bookingData['userId'] as String;
-      await _firestore.collection('notifications').add({
-        'userId': userId,
-        'title': 'Booking Rescheduled',
-        'message':
-            'Your booking has been rescheduled to ${newDate.toLocal().toString().split(' ')[0]} at $newTimeSlot',
-        'type': 'booking_rescheduled',
-        'relatedBookingId': bookingId,
-        'isRead': false,
-        'createdAt': FieldValue.serverTimestamp(),
+      final oldDate = (bookingData['bookingDate'] as Timestamp).toDate();
+
+      // Calculate time ranges for schedule locks
+      final newStartMinutes = _timeSlotToMinutes(newTimeSlot);
+      final newEndMinutes = newStartMinutes + durationMins;
+      const bufferMins = AppConstants.turnoverBufferMinutes;
+
+      // ATOMIC TRANSACTION: Schedule locks + Booking update + Notification creation together
+      await _firestore.runTransaction((transaction) async {
+        // 1. Remove old slot from old schedule
+        final oldScheduleDocId = _getScheduleDocId(suiteType, oldDate);
+        final oldScheduleRef = _firestore
+            .collection('schedules')
+            .doc(oldScheduleDocId);
+        final oldScheduleDoc = await transaction.get(oldScheduleRef);
+
+        if (oldScheduleDoc.exists) {
+          final data = oldScheduleDoc.data()!;
+          List<Map<String, dynamic>> ranges = List<Map<String, dynamic>>.from(
+            data['ranges'] ?? [],
+          );
+          ranges.removeWhere((range) => range['bookingId'] == bookingId);
+          transaction.update(oldScheduleRef, {'ranges': ranges});
+        }
+
+        // 2. Check new schedule for conflicts (INSIDE transaction)
+        final newScheduleDocId = _getScheduleDocId(suiteType, newDate);
+        final newScheduleRef = _firestore
+            .collection('schedules')
+            .doc(newScheduleDocId);
+        final newScheduleDoc = await transaction.get(newScheduleRef);
+
+        List<Map<String, dynamic>> newRanges = [];
+        if (newScheduleDoc.exists) {
+          final data = newScheduleDoc.data()!;
+          newRanges = List<Map<String, dynamic>>.from(data['ranges'] ?? []);
+        }
+
+        // Check for conflicts with buffer time
+        for (final range in newRanges) {
+          final existingStart = range['start'] as int;
+          final existingEnd = range['end'] as int;
+
+          if (newStartMinutes < (existingEnd + bufferMins) &&
+              (newEndMinutes + bufferMins) > existingStart) {
+            throw Exception('Time slot conflict detected in transaction');
+          }
+        }
+
+        // 3. Add booking to new schedule
+        newRanges.add({
+          'start': newStartMinutes,
+          'end': newEndMinutes,
+          'bookingId': bookingId,
+        });
+
+        transaction.set(newScheduleRef, {
+          'suiteType': suiteType,
+          'date': Timestamp.fromDate(newDate),
+          'ranges': newRanges,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // 4. Update booking
+        final bookingRef = _firestore.collection('bookings').doc(bookingId);
+
+        transaction.update(bookingRef, {
+          'bookingDate': Timestamp.fromDate(newDate),
+          'timeSlot': newTimeSlot,
+          'startTime': Timestamp.fromDate(newDate),
+          'rescheduleCount': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        // Create notification atomically
+        final notificationRef = _firestore.collection('notifications').doc();
+        transaction.set(notificationRef, {
+          'userId': userId,
+          'title': 'Booking Rescheduled',
+          'message':
+              'Your booking has been rescheduled to ${newDate.toLocal().toString().split(' ')[0]} at $newTimeSlot',
+          'type': 'booking_rescheduled',
+          'relatedBookingId': bookingId,
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       });
 
       debugPrint('✅ Booking rescheduled: $bookingId');
@@ -596,27 +893,73 @@ class BookingService {
     }
   }
 
-  /// Get booking analytics
+  // ============================================================================
+  // GOD MODE: SYSTEM SETTINGS HELPERS
+  // ============================================================================
+
+  /// Fetch system settings from Firestore (God Mode)
+  Future<Map<String, dynamic>> _getSystemSettings() async {
+    try {
+      final settingsDoc = await _firestore
+          .collection('app_settings')
+          .doc('system_config')
+          .get();
+
+      if (settingsDoc.exists) {
+        return settingsDoc.data() ?? {};
+      }
+      return {};
+    } catch (e) {
+      debugPrint('⚠️ Failed to fetch system settings: $e');
+      return {};
+    }
+  }
+
+  /// Get global commission rate from system settings (God Mode)
+  /// Returns dynamic commission instead of hardcoded 20%
+  Future<double> getGlobalCommission() async {
+    final settings = await _getSystemSettings();
+    return (settings['globalCommission'] ?? 20.0).toDouble();
+  }
+
+  // ============================================================================
+  // HELPER METHODS
+  // ============================================================================
+
+  /// Helper: Get schedule document ID for a specific suite and date
+  /// Schedule documents track all booked time ranges for atomic conflict detection
+  String _getScheduleDocId(String suiteType, DateTime date) {
+    final dateStr =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    return '${suiteType}_$dateStr';
+  }
+
+  /// Helper: Convert time slot to minutes since midnight
+  int _timeSlotToMinutes(String timeSlot) {
+    final parts = timeSlot.split(':');
+    return int.parse(parts[0]) * 60 + int.parse(parts[1]);
+  }
+
+  /// Get booking analytics with required date range for performance
+  ///
+  /// ⚠️ IMPORTANT: Date range is REQUIRED to prevent expensive full collection scans
+  /// This ensures optimal Firebase usage and fast response times
   Future<Map<String, dynamic>> getBookingAnalytics({
-    DateTime? startDate,
-    DateTime? endDate,
+    required DateTime startDate,
+    required DateTime endDate,
   }) async {
     try {
-      Query query = _firestore.collection('bookings');
-
-      // Apply date filters if provided
-      if (startDate != null) {
-        query = query.where(
-          'bookingDate',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
-        );
-      }
-      if (endDate != null) {
-        query = query.where(
-          'bookingDate',
-          isLessThanOrEqualTo: Timestamp.fromDate(endDate),
-        );
-      }
+      // Build query with mandatory date filters
+      Query query = _firestore
+          .collection('bookings')
+          .where(
+            'bookingDate',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
+          )
+          .where(
+            'bookingDate',
+            isLessThanOrEqualTo: Timestamp.fromDate(endDate),
+          );
 
       final snapshot = await query.get();
       final bookings = snapshot.docs;

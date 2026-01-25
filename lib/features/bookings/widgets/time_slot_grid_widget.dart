@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class TimeSlotGridWidget extends StatelessWidget {
-  final List<String> availableSlots;
+  final List<Map<String, dynamic>> availableSlots;
   final String? selectedTime;
   final bool isLoading;
   final ValueChanged<String> onSlotSelected;
@@ -38,19 +38,25 @@ class TimeSlotGridWidget extends StatelessWidget {
             : Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: availableSlots.map((slot) {
+                children: availableSlots.map((slotData) {
+                  final slot = slotData['slot'] as String;
+                  final maxDuration = slotData['maxPossibleDuration'] as int;
                   final isSelected = selectedTime == slot;
-                  return ChoiceChip(
-                    label: Text(slot),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      if (selected) {
-                        onSlotSelected(slot);
-                      }
-                    },
-                    selectedColor: const Color(0xFF006876),
-                    labelStyle: TextStyle(
-                      color: isSelected ? Colors.white : Colors.black,
+                  return Tooltip(
+                    message:
+                        'Max: $maxDuration hour${maxDuration > 1 ? 's' : ''}',
+                    child: ChoiceChip(
+                      label: Text(slot),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        if (selected) {
+                          onSlotSelected(slot);
+                        }
+                      },
+                      selectedColor: const Color(0xFF006876),
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : Colors.black,
+                      ),
                     ),
                   );
                 }).toList(),

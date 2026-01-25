@@ -8,6 +8,7 @@ class DurationButtonWidget extends StatelessWidget {
   final DateTime selectedDate;
   final String? selectedSubscriptionId;
   final List<Map<String, dynamic>> subscriptions;
+  final int maxPossibleDuration; // NEW: Max duration from slot service
   final VoidCallback onPressed;
 
   const DurationButtonWidget({
@@ -19,6 +20,7 @@ class DurationButtonWidget extends StatelessWidget {
     required this.selectedDate,
     required this.selectedSubscriptionId,
     required this.subscriptions,
+    required this.maxPossibleDuration,
     required this.onPressed,
   });
 
@@ -47,14 +49,6 @@ class DurationButtonWidget extends StatelessWidget {
       }
     }
 
-    // Calculate what the end time would be with this duration
-    int? maxAvailableMins;
-    if (startTime != null) {
-      final startMins = startTime!.hour * 60 + startTime!.minute;
-      const hardLimitMins = 22 * 60; // 22:00
-      maxAvailableMins = hardLimitMins - startMins;
-    }
-
     final extraMinutes = hasExtendedHours ? 30 : 0;
     final expectedDuration = (hours * 60).toInt() + extraMinutes;
 
@@ -65,16 +59,14 @@ class DurationButtonWidget extends StatelessWidget {
                 (startTime!.hour * 60 + startTime!.minute)) ==
             expectedDuration;
 
-    final isDisabled =
-        startTime != null &&
-        maxAvailableMins != null &&
-        expectedDuration > maxAvailableMins;
+    // Disable if requested duration exceeds maxPossibleDuration from slot service
+    final isDisabled = hours.toInt() > maxPossibleDuration;
 
     return InkWell(
       onTap: isDisabled ? null : onPressed,
       borderRadius: BorderRadius.circular(12),
       child: Opacity(
-        opacity: isDisabled ? 0.4 : 1.0,
+        opacity: isDisabled ? 0.5 : 1.0,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(

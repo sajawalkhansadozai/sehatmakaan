@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../utils/types.dart';
+import 'package:sehat_makaan_flutter/core/constants/types.dart';
 
 class SubscriptionSelectorWidget extends StatelessWidget {
   final List<Map<String, dynamic>> subscriptions;

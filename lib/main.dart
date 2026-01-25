@@ -1,32 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
-import 'screens/splash_screen.dart';
-import 'screens/landing_page.dart';
-import 'screens/login_page.dart';
-import 'screens/registration_page_new.dart';
-import 'screens/agreement_page.dart';
-import 'screens/verification_page.dart';
-import 'screens/account_suspended_page.dart';
-import 'screens/user/packages_page.dart';
-import 'screens/user/dashboard_page.dart';
-import 'screens/user/monthly_dashboard_page.dart';
-import 'screens/user/analytics_page.dart';
-import 'screens/user/settings_page.dart';
+import 'core/network/firebase_options.dart';
+import 'features/auth/screens/splash_screen.dart';
+import 'features/auth/screens/landing_page.dart';
+import 'features/auth/screens/login_page.dart';
+import 'features/auth/screens/registration_page_new.dart';
+import 'features/auth/screens/agreement_page.dart';
+import 'features/auth/screens/verification_page.dart';
+import 'features/auth/screens/account_suspended_page.dart';
+import 'features/subscriptions/screens/packages_page.dart';
+import 'features/subscriptions/screens/dashboard_page.dart';
+import 'features/subscriptions/screens/monthly_dashboard_page.dart';
+import 'features/bookings/screens/analytics_page.dart';
+import 'features/auth/screens/settings_page.dart';
 import 'features/workshops/screens/user/workshops_page.dart';
 import 'features/workshops/screens/user/create_workshop_page.dart';
-import 'screens/user/help_and_support_page.dart';
-import 'screens/admin/admin_login_page.dart';
-import 'screens/admin/admin_dashboard_page.dart';
+import 'features/auth/screens/help_and_support_page.dart';
+import 'features/admin/screens/admin_login_page.dart';
+import 'features/admin/screens/admin_dashboard_page.dart';
 import 'features/bookings/screens/user/booking_workflow_page.dart';
 import 'features/workshops/screens/user/workshop_registration_page.dart';
 import 'features/workshops/screens/user/workshop_checkout_page.dart';
-import 'screens/user/credentials_page.dart';
-import 'screens/user/checkout_page.dart';
-import 'screens/user/my_schedule_page.dart';
-import 'screens/user/live_slot_booking_page.dart';
-import 'screens/not_found_page.dart';
+import 'features/workshops/screens/user/workshop_creation_fee_checkout_page.dart';
+import 'features/auth/screens/credentials_page.dart';
+import 'features/payments/screens/checkout_page.dart';
+import 'features/bookings/screens/my_schedule_page.dart';
+import 'features/bookings/screens/live_slot_booking_page.dart';
+import 'core/common_widgets/not_found_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -218,6 +219,20 @@ class SehatMakaanApp extends StatelessWidget {
 
       case '/workshop-checkout':
         return MaterialPageRoute(builder: (_) => const WorkshopCheckoutPage());
+
+      case '/workshop-creation-fee-checkout':
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => const WorkshopCreationFeeCheckoutPage(),
+            settings: RouteSettings(arguments: args),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Workshop Creation Fee')),
+            body: const Center(child: Text('Missing workshop data')),
+          ),
+        );
 
       case '/credentials':
         if (args is Map<String, dynamic>) {

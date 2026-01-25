@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
@@ -26,8 +27,9 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
   bool _isSubmitting = false;
   bool _isAuthorized = false;
   String? _creatorId;
-  File? _bannerImage;
-  File? _syllabusPdf;
+  String? _userId; // Store actual user ID
+  dynamic _bannerImage; // File for mobile, Uint8List for web
+  dynamic _syllabusPdf; // File for mobile, Uint8List for web
   String? _pdfFileName;
   final ImagePicker _imagePicker = ImagePicker();
   DateTime? _selectedDate;
@@ -92,6 +94,7 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
         setState(() {
           _isAuthorized = creator != null && creator.isActive;
           _creatorId = creator?.id;
+          _userId = userId; // Store actual user ID
           _isLoading = false;
         });
       }
@@ -107,33 +110,63 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
 
   Future<void> _pickBannerImage() async {
     try {
-      final XFile? pickedFile = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 85,
-      );
+      if (kIsWeb) {
+        // Use FilePicker for web
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+        );
 
-      if (pickedFile != null) {
-        final file = File(pickedFile.path);
-        final fileSizeInBytes = await file.length();
-        final fileSizeInMB = fileSizeInBytes / (1024 * 1024);
+        if (result != null && result.files.single.bytes != null) {
+          final bytes = result.files.single.bytes!;
+          final fileSizeInMB = bytes.length / (1024 * 1024);
 
-        if (fileSizeInMB > 5) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Image size must be less than 5MB'),
-                backgroundColor: Colors.red,
-              ),
-            );
+          if (fileSizeInMB > 5) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Image size must be less than 5MB'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+            return;
           }
-          return;
-        }
 
-        setState(() {
-          _bannerImage = file;
-        });
+          setState(() {
+            _bannerImage = bytes;
+          });
+        }
+      } else {
+        // Use ImagePicker for mobile
+        final XFile? pickedFile = await _imagePicker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 1920,
+          maxHeight: 1080,
+          imageQuality: 85,
+        );
+
+        if (pickedFile != null) {
+          final file = File(pickedFile.path);
+          final fileSizeInBytes = await file.length();
+          final fileSizeInMB = fileSizeInBytes / (1024 * 1024);
+
+          if (fileSizeInMB > 5) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Image size must be less than 5MB'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+            return;
+          }
+
+          setState(() {
+            _bannerImage = file;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -151,27 +184,53 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
         allowedExtensions: ['pdf'],
       );
 
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final fileSizeInBytes = await file.length();
-        final fileSizeInMB = fileSizeInBytes / (1024 * 1024);
+      if (result != null && result.files.single.bytes != null) {
+        if (kIsWeb) {
+          // Web platform - use bytes
+          final bytes = result.files.single.bytes!;
+          final fileSizeInMB = bytes.length / (1024 * 1024);
 
-        if (fileSizeInMB > 10) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('PDF size must be less than 10MB'),
-                backgroundColor: Colors.red,
-              ),
-            );
+          if (fileSizeInMB > 10) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('PDF size must be less than 10MB'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+            return;
           }
-          return;
-        }
 
-        setState(() {
-          _syllabusPdf = file;
-          _pdfFileName = result.files.single.name;
-        });
+          setState(() {
+            _syllabusPdf = bytes;
+            _pdfFileName = result.files.single.name;
+          });
+        } else {
+          // Mobile platform - use path
+          if (result.files.single.path != null) {
+            final file = File(result.files.single.path!);
+            final fileSizeInBytes = await file.length();
+            final fileSizeInMB = fileSizeInBytes / (1024 * 1024);
+
+            if (fileSizeInMB > 10) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('PDF size must be less than 10MB'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            setState(() {
+              _syllabusPdf = file;
+              _pdfFileName = result.files.single.name;
+            });
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -183,37 +242,91 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
   }
 
   Future<String?> _uploadBannerImage() async {
-    if (_bannerImage == null) return null;
+    if (_bannerImage == null) {
+      debugPrint('⚠️ No banner image selected, skipping upload');
+      return null;
+    }
 
     try {
+      debugPrint('📸 Starting banner image upload...');
       final fileName =
           'workshop_banners/${DateTime.now().millisecondsSinceEpoch}_$_creatorId.jpg';
       final storageRef = FirebaseStorage.instance.ref().child(fileName);
 
-      final uploadTask = await storageRef.putFile(_bannerImage!);
-      final downloadUrl = await uploadTask.ref.getDownloadURL();
+      final UploadTask uploadTask;
+      if (_bannerImage is Uint8List) {
+        // Web platform
+        debugPrint('📤 Uploading banner image (Web - Uint8List)...');
+        uploadTask = storageRef.putData(
+          _bannerImage as Uint8List,
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
+      } else {
+        // Mobile platform
+        debugPrint('📤 Uploading banner image (Mobile - File)...');
+        uploadTask = storageRef.putFile(
+          _bannerImage as File,
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
+      }
 
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      debugPrint('✅ Banner image uploaded successfully: $downloadUrl');
       return downloadUrl;
     } catch (e) {
-      debugPrint('Error uploading banner image: $e');
+      debugPrint('❌ Error uploading banner image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload banner image: $e')),
+        );
+      }
       return null;
     }
   }
 
   Future<String?> _uploadSyllabusPdf() async {
-    if (_syllabusPdf == null) return null;
+    if (_syllabusPdf == null) {
+      debugPrint('⚠️ No syllabus PDF selected, skipping upload');
+      return null;
+    }
 
     try {
+      debugPrint('📄 Starting syllabus PDF upload...');
       final fileName =
           'workshop_syllabi/${DateTime.now().millisecondsSinceEpoch}_$_creatorId.pdf';
       final storageRef = FirebaseStorage.instance.ref().child(fileName);
 
-      final uploadTask = await storageRef.putFile(_syllabusPdf!);
-      final downloadUrl = await uploadTask.ref.getDownloadURL();
+      final UploadTask uploadTask;
+      if (_syllabusPdf is Uint8List) {
+        // Web platform
+        debugPrint('📤 Uploading PDF (Web - Uint8List)...');
+        uploadTask = storageRef.putData(
+          _syllabusPdf as Uint8List,
+          SettableMetadata(contentType: 'application/pdf'),
+        );
+      } else {
+        // Mobile platform
+        debugPrint('📤 Uploading PDF (Mobile - File)...');
+        uploadTask = storageRef.putFile(
+          _syllabusPdf as File,
+          SettableMetadata(contentType: 'application/pdf'),
+        );
+      }
 
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      debugPrint('✅ Syllabus PDF uploaded successfully: $downloadUrl');
       return downloadUrl;
     } catch (e) {
-      debugPrint('Error uploading syllabus PDF: $e');
+      debugPrint('❌ Error uploading syllabus PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload syllabus PDF: $e')),
+        );
+      }
       return null;
     }
   }
@@ -364,13 +477,25 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
       // Upload banner image if selected
       String? bannerImageUrl;
       if (_bannerImage != null) {
+        debugPrint('🖼️ Banner image selected, uploading...');
         bannerImageUrl = await _uploadBannerImage();
+        if (bannerImageUrl == null) {
+          debugPrint('⚠️ Banner image upload failed');
+        }
+      } else {
+        debugPrint('⚠️ No banner image selected');
       }
 
       // Upload syllabus PDF if selected
       String? syllabusPdfUrl;
       if (_syllabusPdf != null) {
+        debugPrint('📋 Syllabus PDF selected, uploading...');
         syllabusPdfUrl = await _uploadSyllabusPdf();
+        if (syllabusPdfUrl == null) {
+          debugPrint('⚠️ Syllabus PDF upload failed');
+        }
+      } else {
+        debugPrint('⚠️ No syllabus PDF selected');
       }
 
       final scheduleText = _formatDateTime();
@@ -396,15 +521,26 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
             : _materialsController.text.trim(),
         bannerImage: bannerImageUrl,
         syllabusPdf: syllabusPdfUrl,
-        createdBy: _creatorId!,
+        createdBy: _userId!, // Use actual user ID, not creator table ID
+        permissionStatus: 'pending_admin',
       );
 
       await _firestore.collection('workshops').add(workshop.toJson());
 
       if (mounted) {
+        final uploadedFiles = [];
+        if (bannerImageUrl != null) uploadedFiles.add('banner image');
+        if (syllabusPdfUrl != null) uploadedFiles.add('syllabus PDF');
+
+        final fileMessage = uploadedFiles.isEmpty
+            ? ''
+            : ' (uploaded: ${uploadedFiles.join(', ')})';
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Workshop created successfully!'),
+          SnackBar(
+            content: Text(
+              'Workshop submitted successfully!$fileMessage Admin will review and set pricing.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -670,12 +806,19 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(8),
                   ),
-                  child: Image.file(
-                    _bannerImage!,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
+                  child: _bannerImage is Uint8List
+                      ? Image.memory(
+                          _bannerImage as Uint8List,
+                          height: 200,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        )
+                      : Image.file(
+                          _bannerImage as File,
+                          height: 200,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
                 ),
                 Positioned(
                   top: 8,

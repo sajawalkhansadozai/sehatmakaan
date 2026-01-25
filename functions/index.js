@@ -466,6 +466,196 @@ exports.payfastWebhook = functions.https.onRequest(async (req, res) => {
 });
 
 /**
+ * Cloud Function: PayFast Workshop Creation Fee Webhook
+ * Handles payment notifications for workshop creation fees
+ * Activates workshop after successful payment
+ */
+exports.payfastWorkshopCreationWebhook = functions.https.onRequest(async (req, res) => {
+  console.log('💰 PayFast Workshop Creation Fee webhook received');
+  
+  try {
+    // Only accept POST requests
+    if (req.method !== 'POST') {
+      console.log('⚠️ Invalid method:', req.method);
+      res.status(405).send('Method Not Allowed');
+      return;
+    }
+
+    const paymentData = req.body;
+    console.log('Payment data:', JSON.stringify(paymentData, null, 2));
+
+    // Extract key payment details
+    const {
+      custom_str1: workshopId,
+      custom_str2: paymentRecordId,
+      payment_status: paymentStatus,
+      amount_gross: amountGross,
+      pf_payment_id: pfPaymentId,
+      item_name: itemName,
+    } = paymentData;
+
+    // Validate required fields
+    if (!workshopId || !paymentStatus) {
+      console.log('❌ Missing required fields');
+      res.status(400).send('Missing required fields');
+      return;
+    }
+
+    console.log(`Processing payment for workshop: ${workshopId}`);
+
+    // Update payment record if exists
+    if (paymentRecordId) {
+      try {
+        await admin.firestore().collection('workshop_creation_payments').doc(paymentRecordId).update({
+          status: paymentStatus === 'COMPLETE' ? 'completed' : 'failed',
+          payfastPaymentId: pfPaymentId,
+          payfastData: paymentData,
+          amountReceived: parseFloat(amountGross),
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`✅ Payment record ${paymentRecordId} updated`);
+      } catch (error) {
+        console.warn('⚠️ Could not update payment record:', error.message);
+      }
+    }
+
+    // If payment completed, activate workshop
+    if (paymentStatus === 'COMPLETE') {
+      // Use transaction to ensure atomic update
+      await admin.firestore().runTransaction(async (transaction) => {
+        const workshopRef = admin.firestore().collection('workshops').doc(workshopId);
+        const workshopDoc = await transaction.get(workshopRef);
+
+        if (!workshopDoc.exists) {
+          throw new Error('Workshop not found');
+        }
+
+        const workshopData = workshopDoc.data();
+        
+        // Atomic update: Mark as paid AND activate workshop
+        transaction.update(workshopRef, {
+          isCreationFeePaid: true,
+          isActive: true,
+          permissionStatus: 'live',
+          activatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        console.log(`✅ Workshop ${workshopId} activated successfully`);
+
+        // Get creator details for notification
+        const creatorId = workshopData.createdBy;
+        if (creatorId) {
+          const creatorDoc = await admin.firestore()
+            .collection('workshop_creators')
+            .where('userId', '==', creatorId)
+            .limit(1)
+            .get();
+
+          if (!creatorDoc.empty) {
+            const creatorData = creatorDoc.docs[0].data();
+
+            // Send in-app notification
+            await admin.firestore().collection('notifications').add({
+              userId: creatorId,
+              type: 'workshop_live',
+              title: '🎉 Workshop is Now LIVE!',
+              message: `Your workshop "${workshopData.title}" is now active and visible to users. Start managing registrations!`,
+              isRead: false,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // Send email notification
+            await admin.firestore().collection('email_queue').add({
+              to: creatorData.email,
+              subject: `🎉 Workshop Live - ${workshopData.title}`,
+              htmlContent: `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                    .header { background-color: #006876; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                    .content { background-color: #f9f9f9; padding: 30px; }
+                    .success-box { background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 8px; margin: 20px 0; }
+                    .workshop-details { background-color: white; padding: 15px; border-radius: 8px; margin: 20px 0; }
+                    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="header">
+                      <h1>🎉 Workshop is Now LIVE!</h1>
+                    </div>
+                    <div class="content">
+                      <div class="success-box">
+                        <h3 style="color: #155724; margin-top: 0;">Payment Successful!</h3>
+                        <p style="margin: 5px 0;">Your creation fee payment has been processed successfully.</p>
+                      </div>
+                      
+                      <h2>Workshop Details</h2>
+                      <div class="workshop-details">
+                        <p><strong>Title:</strong> ${workshopData.title}</p>
+                        <p><strong>Status:</strong> <span style="color: #28a745;">● LIVE</span></p>
+                        <p><strong>Payment ID:</strong> ${pfPaymentId}</p>
+                        <p><strong>Amount Paid:</strong> PKR ${amountGross}</p>
+                      </div>
+
+                      <h3>What's Next?</h3>
+                      <ul>
+                        <li>✅ Your workshop is now visible to all users</li>
+                        <li>✅ Users can register and make payments</li>
+                        <li>✅ You can manage registrations from your dashboard</li>
+                        <li>✅ Monitor workshop performance and revenue</li>
+                      </ul>
+
+                      <p style="margin-top: 30px;">
+                        <a href="https://sehatmakaan.com/dashboard" style="background-color: #006876; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                          Go to Dashboard
+                        </a>
+                      </p>
+                    </div>
+                    <div class="footer">
+                      <p><strong>Sehat Makaan Team</strong></p>
+                      <p>This is an automated message. Please do not reply.</p>
+                    </div>
+                  </div>
+                </body>
+                </html>
+              `,
+              status: 'pending',
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              retryCount: 0,
+            });
+
+            console.log('✅ Notifications sent to creator');
+          }
+        }
+      });
+    } else if (paymentStatus === 'FAILED' || paymentStatus === 'CANCELLED') {
+      console.log(`⚠️ Payment ${paymentStatus.toLowerCase()} for workshop ${workshopId}`);
+      
+      // Update payment record status only
+      if (paymentRecordId) {
+        await admin.firestore().collection('workshop_creation_payments').doc(paymentRecordId).update({
+          status: paymentStatus.toLowerCase(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    // Send success response to PayFast
+    res.status(200).send('OK');
+
+  } catch (error) {
+    console.error('❌ Error processing workshop creation fee webhook:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+/**
  * Cloud Function: Generate PayFast Payment Link
  * Callable function to generate payment link for workshop registration
  */
@@ -2905,6 +3095,236 @@ exports.sendBookingReminders = functions.pubsub
 
     } catch (error) {
       console.error('❌ Error sending booking reminders:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+/**
+ * Cloud Function: Workshop Approval Notification
+ * Triggers when a workshop proposal is approved (permissionStatus changes to 'approved')
+ * Sends email to workshop creator with price and payment instructions
+ */
+exports.onWorkshopApproval = functions.firestore
+  .document('workshops/{workshopId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    const workshopId = context.params.workshopId;
+
+    // Check if workshop was just approved
+    const wasApproved = before.permissionStatus !== 'approved' && after.permissionStatus === 'approved';
+    
+    if (!wasApproved) {
+      console.log('No approval detected, skipping email');
+      return null;
+    }
+
+    console.log(`📧 Workshop ${workshopId} approved, sending notification email`);
+
+    try {
+      // Get creator details
+      const creatorId = after.creatorId || after.doctorId;
+      if (!creatorId) {
+        console.error('No creator ID found in workshop');
+        return null;
+      }
+
+      const creatorDoc = await admin.firestore().collection('users').doc(creatorId).get();
+      if (!creatorDoc.exists) {
+        console.error(`Creator ${creatorId} not found`);
+        return null;
+      }
+
+      const creatorData = creatorDoc.data();
+      const creatorEmail = creatorData.email;
+      const creatorName = creatorData.fullName || creatorData.name || 'Doctor';
+
+      if (!creatorEmail) {
+        console.error('Creator has no email address');
+        return null;
+      }
+
+      // Get workshop details
+      const workshopTitle = after.title || 'Your Workshop';
+      const platformFee = after.adminSetFee || after.platformFee || 0;
+      const paymentDeadline = after.approvalTime?.toDate();
+      
+      // Calculate deadline (2 hours from approval)
+      let deadlineText = '2 hours';
+      if (paymentDeadline) {
+        const deadline = new Date(paymentDeadline.getTime() + (2 * 60 * 60 * 1000));
+        deadlineText = deadline.toLocaleString('en-PK', { 
+          dateStyle: 'medium', 
+          timeStyle: 'short',
+          timeZone: 'Asia/Karachi'
+        });
+      }
+
+      // Create email HTML
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #006876; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+            .success-icon { font-size: 48px; margin-bottom: 10px; }
+            .price-box { 
+              background: linear-gradient(135deg, #FF6B35 0%, #FF8C42 100%); 
+              color: white; 
+              font-size: 36px; 
+              font-weight: bold; 
+              text-align: center; 
+              padding: 25px; 
+              border-radius: 12px; 
+              margin: 25px 0; 
+              box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            .price-label { font-size: 14px; font-weight: normal; opacity: 0.9; margin-bottom: 5px; }
+            .info-box { 
+              background-color: #fff; 
+              padding: 20px; 
+              border-left: 4px solid #FF6B35; 
+              margin: 20px 0; 
+              border-radius: 4px;
+            }
+            .warning-box {
+              background-color: #fff3cd;
+              border-left: 4px solid #ffc107;
+              padding: 15px;
+              margin: 20px 0;
+              border-radius: 4px;
+            }
+            .button { 
+              display: inline-block; 
+              background-color: #FF6B35; 
+              color: white; 
+              padding: 15px 30px; 
+              text-decoration: none; 
+              border-radius: 8px; 
+              font-weight: bold; 
+              margin: 20px 0;
+              text-align: center;
+            }
+            .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+            ul { line-height: 1.8; }
+            .highlight { color: #FF6B35; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <div class="success-icon">✅</div>
+              <h1>Workshop Request Approved!</h1>
+            </div>
+            <div class="content">
+              <p>Dear Dr. ${creatorName},</p>
+              
+              <p>Congratulations! Your workshop proposal has been approved by the admin team.</p>
+              
+              <div class="info-box">
+                <strong>Workshop Title:</strong><br>
+                <span style="font-size: 18px;">${workshopTitle}</span>
+              </div>
+
+              <div class="price-box">
+                <div class="price-label">PLATFORM FEE</div>
+                PKR ${platformFee.toLocaleString()}
+              </div>
+
+              <h3 style="color: #006876;">📋 Next Steps:</h3>
+              <ul>
+                <li><strong>Pay the platform fee</strong> of PKR ${platformFee.toLocaleString()} to activate your workshop</li>
+                <li>Your workshop will go <span class="highlight">LIVE</span> immediately after payment confirmation</li>
+                <li>Users will be able to register for your workshop once it's live</li>
+                <li>You'll receive registration notifications via email</li>
+              </ul>
+
+              <div class="warning-box">
+                <strong>⏰ Important:</strong> You have <strong>${deadlineText}</strong> to complete the payment. 
+                After this time, your approval may expire and require resubmission.
+              </div>
+
+              <h3 style="color: #006876;">💳 How to Pay:</h3>
+              <ol>
+                <li>Open the Sehat Makaan app</li>
+                <li>Go to your Workshop Dashboard</li>
+                <li>Click on the approved workshop</li>
+                <li>Complete the payment using the available payment methods</li>
+              </ol>
+
+              <p style="margin-top: 30px;">If you have any questions or need assistance, please don't hesitate to contact our support team.</p>
+              
+              <p>Best regards,<br>
+              <strong>Sehat Makaan Admin Team</strong></p>
+            </div>
+            <div class="footer">
+              <p>© 2026 Sehat Makaan. All rights reserved.</p>
+              <p>This is an automated message. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Queue email
+      await admin.firestore().collection('email_queue').add({
+        to: creatorEmail,
+        subject: `✅ Workshop Approved - Payment Required (PKR ${platformFee.toLocaleString()})`,
+        html: emailHtml,
+        template: 'custom',
+        data: {
+          creatorName,
+          workshopTitle,
+          platformFee,
+          deadlineText
+        },
+        status: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        retryCount: 0,
+      });
+
+      console.log(`✅ Approval email queued for ${creatorEmail}`);
+
+      // Create in-app notification
+      await admin.firestore().collection('notifications').add({
+        userId: creatorId,
+        title: '✅ Workshop Approved!',
+        message: `Your workshop "${workshopTitle}" has been approved. Pay PKR ${platformFee.toLocaleString()} to make it live.`,
+        type: 'workshop_approved',
+        relatedWorkshopId: workshopId,
+        isRead: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Send push notification if FCM token exists
+      if (creatorData.fcmToken) {
+        try {
+          await admin.messaging().send({
+            notification: {
+              title: '✅ Workshop Approved!',
+              body: `"${workshopTitle}" approved! Pay PKR ${platformFee.toLocaleString()} to go live.`,
+            },
+            data: {
+              type: 'workshop_approved',
+              workshopId: workshopId,
+              platformFee: platformFee.toString(),
+              click_action: 'FLUTTER_NOTIFICATION_CLICK',
+            },
+            token: creatorData.fcmToken,
+          });
+          console.log(`✅ Push notification sent to creator ${creatorId}`);
+        } catch (error) {
+          console.error(`❌ Error sending push notification: ${error.message}`);
+        }
+      }
+
+      return { success: true, emailSent: true };
+
+    } catch (error) {
+      console.error('❌ Error sending workshop approval email:', error);
       return { success: false, error: error.message };
     }
   });

@@ -1,13 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/utils/constants.dart';
+import 'package:sehat_makaan_flutter/core/constants/constants.dart';
 
 class SlotAvailabilityService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   /// Load available time slots for a given date and subscription
   /// Each suite type (dental/medical/aesthetic) has independent time slots
-  Future<List<String>> loadAvailableSlots({
+  /// Returns Map with 'slot' (time string) and 'maxPossibleDuration' (hours)
+  Future<List<Map<String, dynamic>>> loadAvailableSlots({
     required DateTime selectedDate,
     required String? selectedSubscriptionId,
     required List<Map<String, dynamic>> subscriptions,
@@ -67,12 +68,14 @@ class SlotAvailabilityService {
         }
       }
 
-      final available = <String>[];
+      final available = <Map<String, dynamic>>[];
       final now = DateTime.now();
       final isToday =
           selectedDate.year == now.year &&
           selectedDate.month == now.month &&
           selectedDate.day == now.day;
+
+      const bufferTimeMins = AppConstants.turnoverBufferMinutes;
 
       // Find the last booking end time
       int? lastBookingEndMins;
@@ -141,23 +144,47 @@ class SlotAvailabilityService {
           }
         }
 
-        // Check availability
+        // Check availability and calculate max possible duration
         bool isAvailable = true;
+        int? nextBookingStartMins;
+
         for (final range in bookedRanges) {
           if (slotMins >= range['start']! && slotMins < range['end']!) {
             isAvailable = false;
             break;
           }
+          // Find next booking after this slot
+          if (range['start']! > slotMins) {
+            if (nextBookingStartMins == null ||
+                range['start']! < nextBookingStartMins) {
+              nextBookingStartMins = range['start'];
+            }
+          }
         }
 
         if (isAvailable) {
-          available.add(slot);
+          // Calculate max possible duration in hours
+          const hardLimitMins = 22 * 60; // 22:00 hard limit
+          int maxEndMins = hardLimitMins;
+
+          if (nextBookingStartMins != null) {
+            // Cap at next booking minus buffer time
+            maxEndMins = nextBookingStartMins - bufferTimeMins;
+          }
+
+          final maxDurationMins = maxEndMins - slotMins;
+          final maxDurationHours = (maxDurationMins / 60).floor();
+
+          available.add({
+            'slot': slot,
+            'maxPossibleDuration': maxDurationHours >= 1 ? maxDurationHours : 1,
+          });
         }
       }
 
-      // Add custom slot after last booking
+      // Add custom slot after last booking with mandatory buffer
       if (lastBookingEndMins != null) {
-        final nextAvailableMins = lastBookingEndMins + 5;
+        final nextAvailableMins = lastBookingEndMins + bufferTimeMins;
         final nextHour = nextAvailableMins ~/ 60;
         final nextMin = nextAvailableMins % 60;
 
@@ -178,15 +205,29 @@ class SlotAvailabilityService {
 
           final canAddSlot = !isPrioritySlot || hasPriorityBooking;
 
-          if (canAddSlot && !available.contains(customSlot)) {
+          if (canAddSlot && !available.any((s) => s['slot'] == customSlot)) {
+            const hardLimitMins = 22 * 60;
+            final maxDurationMins = hardLimitMins - nextAvailableMins;
+            final maxDurationHours = (maxDurationMins / 60).floor();
+
             if (isToday) {
               final currentMinutes = now.hour * 60 + now.minute;
               const gracePeriodMins = 30;
               if (nextAvailableMins + gracePeriodMins > currentMinutes) {
-                available.insert(0, customSlot);
+                available.insert(0, {
+                  'slot': customSlot,
+                  'maxPossibleDuration': maxDurationHours >= 1
+                      ? maxDurationHours
+                      : 1,
+                });
               }
             } else {
-              available.insert(0, customSlot);
+              available.insert(0, {
+                'slot': customSlot,
+                'maxPossibleDuration': maxDurationHours >= 1
+                    ? maxDurationHours
+                    : 1,
+              });
             }
           }
         }
@@ -194,8 +235,8 @@ class SlotAvailabilityService {
 
       // Sort slots chronologically
       available.sort((a, b) {
-        final aParts = a.split(':');
-        final bParts = b.split(':');
+        final aParts = (a['slot'] as String).split(':');
+        final bParts = (b['slot'] as String).split(':');
         final aMins = int.parse(aParts[0]) * 60 + int.parse(aParts[1]);
         final bMins = int.parse(bParts[0]) * 60 + int.parse(bParts[1]);
         return aMins.compareTo(bMins);

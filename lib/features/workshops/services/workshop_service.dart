@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/workshop_model.dart';
 import '../models/workshop_registration_model.dart';
+import '../../admin/helpers/notification_helper.dart';
 
 /// Workshop Service for Firebase Firestore
 /// Handles workshop CRUD and registration operations
@@ -50,12 +51,14 @@ class WorkshopService {
         'endDate': endDate != null ? Timestamp.fromDate(endDate) : null,
         'startTime': startTime,
         'endTime': endTime,
-        'isActive': true,
+        'isActive': false, // ❌ Not live until admin approves and creator pays
+        'permissionStatus': 'pending_admin', // 🟡 Awaiting admin review
+        'isCreationFeePaid': false, // 💰 Creator must pay after admin approval
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      debugPrint('✅ Workshop created: ${workshopRef.id}');
+      debugPrint('✅ Workshop proposal created: ${workshopRef.id}');
       return {
         'success': true,
         'workshopId': workshopRef.id,
@@ -197,7 +200,7 @@ class WorkshopService {
         };
       }
 
-      // Create registration
+      // Create registration with pending_creator status
       final registrationRef = await _firestore
           .collection('workshop_registrations')
           .add({
@@ -212,23 +215,21 @@ class WorkshopService {
             'notes': notes,
             'registrationNumber': 'WS${DateTime.now().millisecondsSinceEpoch}',
             'status': 'pending',
+            'approvalStatus': 'pending_creator', // Wait for creator approval
             'paymentStatus': 'pending',
             'paymentMethod': 'payfast',
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
 
-      // Increment participant count
-      await _firestore.collection('workshops').doc(workshopId).update({
-        'currentParticipants': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      // NOTE: currentParticipants will only increment after successful payment
+      // This prevents seat blocking by unapproved/unpaid registrations
 
       debugPrint('✅ Workshop registration created: ${registrationRef.id}');
       return {
         'success': true,
         'registrationId': registrationRef.id,
-        'message': 'Registration submitted successfully',
+        'message': 'Request sent! Please wait for instructor approval.',
       };
     } catch (e) {
       debugPrint('❌ Register workshop error: $e');
@@ -700,6 +701,431 @@ class WorkshopService {
     } catch (e) {
       debugPrint('❌ Search workshops error: $e');
       return [];
+    }
+  }
+
+  // ============================================================================
+  // PHASE 2: DOCTOR PROPOSAL SYSTEM
+  // ============================================================================
+
+  /// Submit workshop proposal (Doctor → Admin)
+  /// Doctor creates workshop request that needs admin approval
+  Future<Map<String, dynamic>> submitWorkshopProposal({
+    required String createdBy,
+    required String title,
+    required String description,
+    required String provider,
+    required String certificationType,
+    required int duration,
+    required double price,
+    required int maxParticipants,
+    required String location,
+    required String schedule,
+    String? instructor,
+    String? prerequisites,
+    String? materials,
+    String? bannerImage,
+    String? syllabusPdf,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? startTime,
+    String? endTime,
+  }) async {
+    try {
+      final proposalRef = await _firestore.collection('workshops').add({
+        'title': title,
+        'description': description,
+        'provider': provider,
+        'certificationType': certificationType,
+        'duration': duration,
+        'price': price, // Doctor's suggested price
+        'maxParticipants': maxParticipants,
+        'currentParticipants': 0,
+        'location': location,
+        'schedule': schedule,
+        'instructor': instructor,
+        'prerequisites': prerequisites,
+        'materials': materials,
+        'bannerImage': bannerImage,
+        'syllabusPdf': syllabusPdf,
+        'startDate': startDate != null ? Timestamp.fromDate(startDate) : null,
+        'endDate': endDate != null ? Timestamp.fromDate(endDate) : null,
+        'startTime': startTime,
+        'endTime': endTime,
+        'isActive': false, // ❌ Not live until admin approves
+        'createdBy': createdBy,
+        'permissionStatus': 'pending_admin', // 🟡 Awaiting admin review
+        'isCreationFeePaid': false, // 💰 Creator must pay after admin approval
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      debugPrint('📝 Workshop proposal submitted: ${proposalRef.id}');
+      return {
+        'success': true,
+        'proposalId': proposalRef.id,
+        'message': 'Proposal submitted. Awaiting admin approval.',
+      };
+    } catch (e) {
+      debugPrint('❌ Submit proposal error: $e');
+      return {
+        'success': false,
+        'error': 'Failed to submit proposal. Please try again.',
+      };
+    }
+  }
+
+  /// Check if workshop payment deadline has expired (2 hours)
+  bool hasPaymentExpired(DateTime? permissionGrantedAt) {
+    if (permissionGrantedAt == null) return false;
+
+    final deadline = permissionGrantedAt.add(const Duration(hours: 2));
+    return DateTime.now().isAfter(deadline);
+  }
+
+  /// Get remaining time for payment (in seconds)
+  int getRemainingPaymentTime(DateTime? permissionGrantedAt) {
+    if (permissionGrantedAt == null) return 0;
+
+    final deadline = permissionGrantedAt.add(const Duration(hours: 2));
+    final remaining = deadline.difference(DateTime.now()).inSeconds;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  /// Get workshops pending admin approval
+  Stream<List<WorkshopModel>> getPendingProposals() {
+    return _firestore
+        .collection('workshops')
+        .where('permissionStatus', isEqualTo: 'pending_admin')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) => WorkshopModel.fromFirestore(doc))
+              .toList();
+        });
+  }
+
+  /// Get workshops by creator with permission status
+  Stream<List<WorkshopModel>> getWorkshopsByCreator(String creatorId) {
+    return _firestore
+        .collection('workshops')
+        .where('createdBy', isEqualTo: creatorId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) => WorkshopModel.fromFirestore(doc))
+              .toList();
+        });
+  }
+
+  // ============================================================================
+  // PHASE 3: JOINING PERMISSION (Creator Gatekeeper)
+  // ============================================================================
+
+  /// Get pending join requests for creator's workshop
+  Stream<List<WorkshopRegistrationModel>> getPendingJoinRequests(
+    String workshopId,
+  ) {
+    return _firestore
+        .collection('workshop_registrations')
+        .where('workshopId', isEqualTo: workshopId)
+        .where('approvalStatus', isEqualTo: 'pending_creator')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) => WorkshopRegistrationModel.fromFirestore(doc))
+              .toList();
+        });
+  }
+
+  /// Approve a join request (Creator action)
+  Future<Map<String, dynamic>> approveJoinRequest({
+    required String registrationId,
+    required String workshopId,
+  }) async {
+    try {
+      await _firestore
+          .collection('workshop_registrations')
+          .doc(registrationId)
+          .update({
+            'approvalStatus': 'approved_by_creator',
+            'creatorApprovedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+      // Get registration details for notification
+      final regDoc = await _firestore
+          .collection('workshop_registrations')
+          .doc(registrationId)
+          .get();
+
+      if (regDoc.exists) {
+        final regData = regDoc.data()!;
+        final userId = regData['userId'] as String?;
+        final workshopTitle = regData['workshopTitle'] ?? 'Workshop';
+
+        if (userId != null) {
+          await NotificationHelper.createNotification(
+            firestore: _firestore,
+            userId: userId,
+            type: 'workshop_approved',
+            title: 'Join Request Approved! ⏰',
+            message:
+                'Good news! You are approved for "$workshopTitle". '
+                'Please pay within 1 hour to secure your seat.',
+          );
+        }
+      }
+
+      debugPrint('✅ Join request approved: $registrationId');
+      return {
+        'success': true,
+        'message': 'Join request approved! Participant has 1 hour to pay.',
+      };
+    } catch (e) {
+      debugPrint('❌ Approve join request error: $e');
+      return {'success': false, 'error': 'Failed to approve request.'};
+    }
+  }
+
+  /// Reject a join request (Creator action)
+  Future<Map<String, dynamic>> rejectJoinRequest({
+    required String registrationId,
+    required String reason,
+  }) async {
+    try {
+      await _firestore
+          .collection('workshop_registrations')
+          .doc(registrationId)
+          .update({
+            'approvalStatus': 'rejected',
+            'rejectionReason': reason,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+      debugPrint('✅ Join request rejected: $registrationId');
+      return {'success': true, 'message': 'Join request rejected.'};
+    } catch (e) {
+      debugPrint('❌ Reject join request error: $e');
+      return {'success': false, 'error': 'Failed to reject request.'};
+    }
+  }
+
+  /// Check if 1-hour payment window has expired
+  bool hasJoiningPaymentExpired(DateTime? creatorApprovedAt) {
+    if (creatorApprovedAt == null) return false;
+
+    final deadline = creatorApprovedAt.add(const Duration(hours: 1));
+    return DateTime.now().isAfter(deadline);
+  }
+
+  /// Get remaining time for joining payment (in seconds)
+  int getRemainingJoiningTime(DateTime? creatorApprovedAt) {
+    if (creatorApprovedAt == null) return 0;
+
+    final deadline = creatorApprovedAt.add(const Duration(hours: 1));
+    final remaining = deadline.difference(DateTime.now()).inSeconds;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  // ============================================================================
+  // PHASE 4: WORKSHOP PAYOUT SYSTEM
+  // ============================================================================
+
+  /// Calculate workshop revenue (only from PAID registrations)
+  Future<Map<String, dynamic>> calculateWorkshopRevenue(
+    String workshopId,
+  ) async {
+    try {
+      final workshop = await getWorkshopById(workshopId);
+      if (workshop == null) {
+        return {'success': false, 'error': 'Workshop not found'};
+      }
+
+      // Get only PAID registrations
+      final paidRegsQuery = await _firestore
+          .collection('workshop_registrations')
+          .where('workshopId', isEqualTo: workshopId)
+          .where('paymentStatus', isEqualTo: 'paid')
+          .get();
+
+      final paidCount = paidRegsQuery.docs.length;
+      final totalRevenue = paidCount * workshop.price;
+      final adminCommissionRate = 0.20; // 20% commission
+      final adminCommission = totalRevenue * adminCommissionRate;
+      final doctorPayout = totalRevenue - adminCommission;
+
+      return {
+        'success': true,
+        'paidParticipants': paidCount,
+        'totalRevenue': totalRevenue,
+        'adminCommission': adminCommission,
+        'doctorPayout': doctorPayout,
+      };
+    } catch (e) {
+      debugPrint('❌ Calculate revenue error: $e');
+      return {'success': false, 'error': 'Failed to calculate revenue'};
+    }
+  }
+
+  /// Request workshop payout (Doctor action)
+  Future<Map<String, dynamic>> requestWorkshopPayout(String workshopId) async {
+    try {
+      final workshop = await getWorkshopById(workshopId);
+      if (workshop == null) {
+        return {'success': false, 'error': 'Workshop not found'};
+      }
+
+      // 🛡️ SECURITY: Verify workshop has ended
+      if (workshop.endDate == null) {
+        return {'success': false, 'error': 'Workshop end date not set'};
+      }
+
+      if (DateTime.now().isBefore(workshop.endDate!)) {
+        return {
+          'success': false,
+          'error': 'Cannot request payout until workshop ends',
+        };
+      }
+
+      // Check if already requested
+      if (workshop.isPayoutRequested) {
+        return {'success': false, 'error': 'Payout already requested'};
+      }
+
+      // Calculate revenue
+      final revenueResult = await calculateWorkshopRevenue(workshopId);
+      if (!revenueResult['success']) {
+        return revenueResult;
+      }
+
+      // Update workshop with payout request
+      await _firestore.collection('workshops').doc(workshopId).update({
+        'payoutStatus': 'requested',
+        'isPayoutRequested': true,
+        'payoutRequestedAt': FieldValue.serverTimestamp(),
+        'totalRevenue': revenueResult['totalRevenue'],
+        'adminCommission': revenueResult['adminCommission'],
+        'doctorPayout': revenueResult['doctorPayout'],
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      debugPrint('✅ Payout requested for workshop: $workshopId');
+      return {
+        'success': true,
+        'message': 'Payout request submitted successfully',
+        'doctorPayout': revenueResult['doctorPayout'],
+      };
+    } catch (e) {
+      debugPrint('❌ Request payout error: $e');
+      return {'success': false, 'error': 'Failed to request payout'};
+    }
+  }
+
+  /// Phase 5: Get comprehensive financial snapshot for a workshop
+  /// Returns: Creation fee status, participant payments summary, and financial metrics
+  Future<Map<String, dynamic>> getWorkshopFinancialSnapshot(
+    String workshopId,
+  ) async {
+    try {
+      // Fetch workshop data
+      final workshopDoc = await _firestore
+          .collection('workshops')
+          .doc(workshopId)
+          .get();
+      if (!workshopDoc.exists) {
+        return {'success': false, 'error': 'Workshop not found'};
+      }
+
+      final workshopData = workshopDoc.data()!;
+      final workshopPrice = (workshopData['price'] ?? 0.0).toDouble();
+      final isCreationFeePaid = workshopData['isCreationFeePaid'] ?? false;
+      final adminSetFee = (workshopData['adminSetFee'] ?? 0.0).toDouble();
+
+      // Fetch all paid registrations
+      final registrationsSnapshot = await _firestore
+          .collection('workshop_registrations')
+          .where('workshopId', isEqualTo: workshopId)
+          .where('paymentStatus', isEqualTo: 'paid')
+          .get();
+
+      final participantPayments = registrationsSnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'userName': data['userName'] ?? 'Unknown',
+          'cnic': data['cnic'] ?? '',
+          'phoneNumber': data['phoneNumber'] ?? '',
+          'paidAt': data['paidAt'],
+          'amountPaid': (data['amountPaid'] ?? workshopPrice).toDouble(),
+        };
+      }).toList();
+
+      // Calculate financial metrics
+      final totalParticipants = participantPayments.length;
+      final totalRevenue = totalParticipants * workshopPrice;
+
+      // 🌐 GOD MODE: Fetch dynamic globalCommission from system settings
+      final systemSettings = await _getSystemSettings();
+      final globalCommissionRate =
+          (systemSettings['globalCommission'] ?? 20.0) / 100.0;
+
+      final adminCommission = totalRevenue * globalCommissionRate;
+      final doctorPayout = totalRevenue * (1.0 - globalCommissionRate);
+
+      // Escrow liability (money not yet released to doctor)
+      final payoutStatus = workshopData['payoutStatus'] ?? 'none';
+      final escrowLiability = payoutStatus == 'released' ? 0.0 : doctorPayout;
+
+      // Net profit for admin (creation fees + commission from all workshops)
+      final netProfit =
+          (isCreationFeePaid ? adminSetFee : 0.0) + adminCommission;
+
+      return {
+        'success': true,
+        'workshopId': workshopId,
+        'workshopTitle': workshopData['title'] ?? 'Untitled',
+        // 1. Creation Fee Ledger
+        'creationFeePaid': isCreationFeePaid,
+        'creationFeeAmount': adminSetFee,
+        // 2. Liquidity Tracking
+        'totalParticipantsPaid': totalParticipants,
+        'totalCashIn': totalRevenue,
+        // 3. Escrow Liability
+        'escrowLiability': escrowLiability,
+        'payoutStatus': payoutStatus,
+        // 4. Net Profit
+        'netProfit': netProfit,
+        'adminCommission': adminCommission,
+        // Additional metrics
+        'workshopPrice': workshopPrice,
+        'doctorPayout': doctorPayout,
+        'totalRevenue': totalRevenue,
+        // Participant details
+        'participantPayments': participantPayments,
+        // High-value flag
+        'isHighValue': totalRevenue >= 100000,
+      };
+    } catch (e) {
+      debugPrint('❌ Get financial snapshot error: $e');
+      return {'success': false, 'error': 'Failed to fetch financial snapshot'};
+    }
+  }
+
+  // ⚙️ GOD MODE HELPER: Fetch system settings for global commission
+  Future<Map<String, dynamic>> _getSystemSettings() async {
+    try {
+      final doc = await _firestore
+          .collection('app_settings')
+          .doc('system_config')
+          .get();
+      return doc.data() ?? {};
+    } catch (e) {
+      debugPrint('⚠️ Failed to fetch system settings: $e');
+      return {};
     }
   }
 }

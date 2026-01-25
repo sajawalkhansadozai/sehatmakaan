@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:sehat_makaan_flutter/core/constants/constants.dart';
 
 class DurationCalculator {
   /// Calculate end time based on start time and duration
+  /// Now includes conflict checking with nextBookingStart parameter
   static TimeOfDay? calculateEndTime({
     required TimeOfDay startTime,
     required double hours,
@@ -9,7 +11,10 @@ class DurationCalculator {
     required bool hasExtendedHours,
     required bool hasPriorityBooking,
     required BuildContext context,
+    DateTime? nextBookingStart, // NEW: Next booking conflict check
   }) {
+    const bufferTimeMins = AppConstants.turnoverBufferMinutes;
+
     // Calculate end time WITHOUT Extended Hours first
     final startTotalMins = startTime.hour * 60 + startTime.minute;
     final durationMins = (hours * 60).toInt();
@@ -36,7 +41,7 @@ class DurationCalculator {
         return null;
       } else if (baseEndHour >= 18) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
               '❌ This duration would extend into priority hours (after 17:00)\nYou need Priority Booking addon or choose shorter duration',
             ),
@@ -51,38 +56,79 @@ class DurationCalculator {
     // Hard limit: No booking can extend beyond 22:00
     const hardLimitMins = 22 * 60;
 
+    // Check if next booking conflicts (with buffer time)
+    int effectiveHardLimit = hardLimitMins;
+    if (nextBookingStart != null) {
+      final nextBookingMins =
+          nextBookingStart.hour * 60 + nextBookingStart.minute;
+      // Must end BEFORE next booking by buffer time
+      final maxAllowedEndMins = nextBookingMins - bufferTimeMins;
+      if (maxAllowedEndMins < effectiveHardLimit) {
+        effectiveHardLimit = maxAllowedEndMins;
+      }
+    }
+
     int endHour;
     int endMinute;
     bool extendedHoursApplied = false;
+    bool cappedByNextBooking = false;
 
-    if (baseEndTotalMins > hardLimitMins) {
-      endHour = 22;
-      endMinute = 0;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            '⏰ Booking capped at 22:00 (10 PM) - Hard closing time',
+    if (baseEndTotalMins > effectiveHardLimit) {
+      // Capped by either hard limit or next booking
+      endHour = effectiveHardLimit ~/ 60;
+      endMinute = effectiveHardLimit % 60;
+
+      if (nextBookingStart != null && effectiveHardLimit < hardLimitMins) {
+        cappedByNextBooking = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⚠️ Duration capped at ${endHour.toString().padLeft(2, '0')}:${endMinute.toString().padLeft(2, '0')} - Next booking starts soon (15-min buffer required)',
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
           ),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 3),
-        ),
-      );
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '⏰ Booking capped at 22:00 (10 PM) - Hard closing time',
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } else {
-      if (hasExtendedHours) {
+      if (hasExtendedHours && !cappedByNextBooking) {
         final withExtraMins = baseEndTotalMins + 30;
 
-        if (withExtraMins > hardLimitMins) {
-          endHour = 22;
-          endMinute = 0;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                '⚠️ Extended Hours +30 mins limited - Capped at 22:00 hard limit',
+        if (withExtraMins > effectiveHardLimit) {
+          endHour = effectiveHardLimit ~/ 60;
+          endMinute = effectiveHardLimit % 60;
+
+          if (nextBookingStart != null && effectiveHardLimit < hardLimitMins) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '⚠️ Extended Hours bonus skipped - Next booking at ${nextBookingStart.hour.toString().padLeft(2, '0')}:${nextBookingStart.minute.toString().padLeft(2, '0')} (15-min buffer)',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
               ),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  '⚠️ Extended Hours +30 mins limited - Capped at 22:00 hard limit',
+                ),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
         } else {
           endHour = withExtraMins ~/ 60;
           endMinute = withExtraMins % 60;

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/utils/constants.dart';
+import 'package:sehat_makaan_flutter/core/constants/constants.dart';
 
 /// Quick Booking Shortcuts Widget
 /// Displays pre-configured popular booking options for fast checkout

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/workshop_service.dart';
 
 class WorkshopCheckoutPage extends StatefulWidget {
   const WorkshopCheckoutPage({super.key});
@@ -10,6 +11,7 @@ class WorkshopCheckoutPage extends StatefulWidget {
 
 class _WorkshopCheckoutPageState extends State<WorkshopCheckoutPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final WorkshopService _workshopService = WorkshopService();
   bool _isProcessing = false;
 
   @override
@@ -298,6 +300,78 @@ class _WorkshopCheckoutPageState extends State<WorkshopCheckoutPage> {
     Map<String, dynamic> workshop,
     String registrationId,
   ) async {
+    // ============================================================================
+    // PHASE 3 SECURITY CHECK: Verify 1-Hour Payment Window
+    // ============================================================================
+    try {
+      final registrationDoc = await _firestore
+          .collection('workshop_registrations')
+          .doc(registrationId)
+          .get();
+
+      if (!registrationDoc.exists) {
+        if (mounted) {
+          _showErrorDialog(
+            'Registration Not Found',
+            'This registration could not be found. Please try again.',
+          );
+        }
+        return;
+      }
+
+      final registrationData = registrationDoc.data()!;
+      final creatorApprovedAt = registrationData['creatorApprovedAt'];
+
+      // Check if approval exists
+      if (creatorApprovedAt == null) {
+        if (mounted) {
+          _showErrorDialog(
+            'Approval Pending',
+            'This workshop registration has not been approved yet by the instructor.',
+          );
+        }
+        return;
+      }
+
+      // Convert Timestamp to DateTime
+      DateTime approvedTime;
+      if (creatorApprovedAt is Timestamp) {
+        approvedTime = creatorApprovedAt.toDate();
+      } else if (creatorApprovedAt is DateTime) {
+        approvedTime = creatorApprovedAt;
+      } else {
+        if (mounted) {
+          _showErrorDialog(
+            'Invalid Data',
+            'Unable to verify approval timestamp. Please contact support.',
+          );
+        }
+        return;
+      }
+
+      // Check if 1-hour window has expired
+      if (_workshopService.hasJoiningPaymentExpired(approvedTime)) {
+        if (mounted) {
+          _showErrorDialog(
+            'Payment Window Expired',
+            'Sorry, your 1-hour payment window has expired. Please register again to request a new approval.',
+          );
+        }
+        return;
+      }
+    } catch (e) {
+      if (mounted) {
+        _showErrorDialog(
+          'Verification Failed',
+          'Unable to verify registration status: $e',
+        );
+      }
+      return;
+    }
+
+    // ============================================================================
+    // PROCEED WITH PAYMENT
+    // ============================================================================
     setState(() => _isProcessing = true);
 
     try {
@@ -350,8 +424,18 @@ class _WorkshopCheckoutPageState extends State<WorkshopCheckoutPage> {
           registrationNumber,
         );
 
-        // Increment workshop participants count
-        await _incrementWorkshopParticipants(workshop['id']);
+        // Increment workshop participants count using TRANSACTION (prevent over-booking)
+        final incrementResult =
+            await _incrementWorkshopParticipantsWithTransaction(
+              workshop['id'],
+              workshop['maxParticipants'] ?? 100,
+            );
+
+        if (!incrementResult) {
+          // Rollback registration if seat not available
+          await _updateRegistrationStatus(registrationId, 'failed');
+          throw Exception('Workshop is now full. Please try another workshop.');
+        }
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -411,9 +495,67 @@ class _WorkshopCheckoutPageState extends State<WorkshopCheckoutPage> {
         .update(updates);
   }
 
-  Future<void> _incrementWorkshopParticipants(String workshopId) async {
-    await _firestore.collection('workshops').doc(workshopId).update({
-      'currentParticipants': FieldValue.increment(1),
-    });
+  /// Transaction-based seat increment to prevent over-booking
+  Future<bool> _incrementWorkshopParticipantsWithTransaction(
+    String workshopId,
+    int maxParticipants,
+  ) async {
+    try {
+      final workshopRef = _firestore.collection('workshops').doc(workshopId);
+
+      return await _firestore.runTransaction<bool>((transaction) async {
+        final workshopSnapshot = await transaction.get(workshopRef);
+
+        if (!workshopSnapshot.exists) {
+          throw Exception('Workshop not found');
+        }
+
+        final currentParticipants =
+            workshopSnapshot.data()?['currentParticipants'] ?? 0;
+
+        // Check if seat still available
+        if (currentParticipants >= maxParticipants) {
+          return false; // ❌ Workshop full
+        }
+
+        // ✅ Increment safely
+        transaction.update(workshopRef, {
+          'currentParticipants': currentParticipants + 1,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        return true; // ✅ Seat confirmed
+      });
+    } catch (e) {
+      debugPrint('❌ Transaction error: $e');
+      return false;
+    }
+  }
+
+  void _showErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(title, style: const TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back to previous page
+            },
+            child: const Text('Go Back'),
+          ),
+        ],
+      ),
+    );
   }
 }

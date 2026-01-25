@@ -26,6 +26,25 @@ class WorkshopModel {
   final String createdBy; // Workshop creator/organizer ID
   final DateTime createdAt;
 
+  // 🛡️ PHASE 1: Admin Permission & Payment System
+  final String
+  permissionStatus; // 'pending_admin', 'approved_by_admin', 'rejected', 'expired'
+  final double? adminSetFee; // Dynamic fee set by admin (PKR)
+  final DateTime?
+  permissionGrantedAt; // Timestamp when admin approves (starts 2-hour countdown)
+  final String? rejectionReason; // Reason provided when admin rejects proposal
+  final bool
+  isCreationFeePaid; // Whether doctor has paid the admin-set creation fee
+
+  // 💰 PHASE 4: Workshop Payout System
+  final String payoutStatus; // 'none', 'requested', 'processing', 'released'
+  final bool isPayoutRequested; // Whether doctor has requested payout
+  final DateTime? payoutRequestedAt; // When doctor requested payout
+  final DateTime? payoutReleasedAt; // When admin released payout
+  final double? totalRevenue; // Total collected from paid participants
+  final double? adminCommission; // Admin's share (e.g., 20% of totalRevenue)
+  final double? doctorPayout; // Doctor's net amount after commission
+
   WorkshopModel({
     this.id,
     required this.title,
@@ -47,9 +66,21 @@ class WorkshopModel {
     this.endDate,
     this.startTime,
     this.endTime,
-    this.isActive = true,
+    this.isActive = false, // NOT live until creation fee is paid
     required this.createdBy,
     DateTime? createdAt,
+    this.permissionStatus = 'pending_admin',
+    this.adminSetFee,
+    this.permissionGrantedAt,
+    this.rejectionReason,
+    this.isCreationFeePaid = false,
+    this.payoutStatus = 'none',
+    this.isPayoutRequested = false,
+    this.payoutRequestedAt,
+    this.payoutReleasedAt,
+    this.totalRevenue,
+    this.adminCommission,
+    this.doctorPayout,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Create WorkshopModel from Firestore document
@@ -80,11 +111,29 @@ class WorkshopModel {
           : null,
       startTime: data['startTime'],
       endTime: data['endTime'],
-      isActive: data['isActive'] ?? true,
+      isActive: data['isActive'] ?? false, // Default false until payment
       createdBy: data['createdBy'] ?? '',
       createdAt: data['createdAt'] != null
           ? (data['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
+      permissionStatus: data['permissionStatus'] ?? 'pending_admin',
+      adminSetFee: data['adminSetFee']?.toDouble(),
+      permissionGrantedAt: data['permissionGrantedAt'] != null
+          ? (data['permissionGrantedAt'] as Timestamp).toDate()
+          : null,
+      rejectionReason: data['rejectionReason'],
+      isCreationFeePaid: data['isCreationFeePaid'] ?? false,
+      payoutStatus: data['payoutStatus'] ?? 'none',
+      isPayoutRequested: data['isPayoutRequested'] ?? false,
+      payoutRequestedAt: data['payoutRequestedAt'] != null
+          ? (data['payoutRequestedAt'] as Timestamp).toDate()
+          : null,
+      payoutReleasedAt: data['payoutReleasedAt'] != null
+          ? (data['payoutReleasedAt'] as Timestamp).toDate()
+          : null,
+      totalRevenue: data['totalRevenue']?.toDouble(),
+      adminCommission: data['adminCommission']?.toDouble(),
+      doctorPayout: data['doctorPayout']?.toDouble(),
     );
   }
 
@@ -113,6 +162,24 @@ class WorkshopModel {
       'isActive': isActive,
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(createdAt),
+      'permissionStatus': permissionStatus,
+      'adminSetFee': adminSetFee,
+      'permissionGrantedAt': permissionGrantedAt != null
+          ? Timestamp.fromDate(permissionGrantedAt!)
+          : null,
+      'rejectionReason': rejectionReason,
+      'isCreationFeePaid': isCreationFeePaid,
+      'payoutStatus': payoutStatus,
+      'isPayoutRequested': isPayoutRequested,
+      'payoutRequestedAt': payoutRequestedAt != null
+          ? Timestamp.fromDate(payoutRequestedAt!)
+          : null,
+      'payoutReleasedAt': payoutReleasedAt != null
+          ? Timestamp.fromDate(payoutReleasedAt!)
+          : null,
+      'totalRevenue': totalRevenue,
+      'adminCommission': adminCommission,
+      'doctorPayout': doctorPayout,
     };
   }
 
@@ -141,6 +208,18 @@ class WorkshopModel {
     bool? isActive,
     String? createdBy,
     DateTime? createdAt,
+    String? permissionStatus,
+    double? adminSetFee,
+    DateTime? permissionGrantedAt,
+    String? rejectionReason,
+    bool? isCreationFeePaid,
+    String? payoutStatus,
+    bool? isPayoutRequested,
+    DateTime? payoutRequestedAt,
+    DateTime? payoutReleasedAt,
+    double? totalRevenue,
+    double? adminCommission,
+    double? doctorPayout,
   }) {
     return WorkshopModel(
       id: id ?? this.id,
@@ -166,6 +245,18 @@ class WorkshopModel {
       isActive: isActive ?? this.isActive,
       createdBy: createdBy ?? this.createdBy,
       createdAt: createdAt ?? this.createdAt,
+      permissionStatus: permissionStatus ?? this.permissionStatus,
+      adminSetFee: adminSetFee ?? this.adminSetFee,
+      permissionGrantedAt: permissionGrantedAt ?? this.permissionGrantedAt,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+      isCreationFeePaid: isCreationFeePaid ?? this.isCreationFeePaid,
+      payoutStatus: payoutStatus ?? this.payoutStatus,
+      isPayoutRequested: isPayoutRequested ?? this.isPayoutRequested,
+      payoutRequestedAt: payoutRequestedAt ?? this.payoutRequestedAt,
+      payoutReleasedAt: payoutReleasedAt ?? this.payoutReleasedAt,
+      totalRevenue: totalRevenue ?? this.totalRevenue,
+      adminCommission: adminCommission ?? this.adminCommission,
+      doctorPayout: doctorPayout ?? this.doctorPayout,
     );
   }
 }

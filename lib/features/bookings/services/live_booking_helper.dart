@@ -79,6 +79,9 @@ class LiveBookingHelper {
 
       // Check for conflicts within the same suite type only
       final suiteType = _getSuiteTypeForSpecialty(specialty);
+
+      // PRE-TRANSACTION VALIDATIONS (Queries cannot run inside transactions)
+      // Check conflicts before entering transaction
       final hasConflict = await _checkConflicts(
         selectedDate: selectedDate,
         startTime: startTime,
@@ -88,7 +91,7 @@ class LiveBookingHelper {
       );
       if (hasConflict) return false;
 
-      // Validate Priority Booking
+      // Validate Priority Booking before transaction
       if (!await _validatePriorityBooking(
         context: context,
         selectedDate: selectedDate,
@@ -100,47 +103,73 @@ class LiveBookingHelper {
         return false;
       }
 
-      final startTimeStr =
-          '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}';
-      final endTimeStr =
-          '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}';
+      // ATOMIC TRANSACTION FOR RACE CONDITION PROTECTION
+      // Only writes (set/update) are allowed inside transaction
+      await _firestore.runTransaction((transaction) async {
+        final startTimeStr =
+            '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}';
+        final endTimeStr =
+            '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}';
 
-      // Create booking datetime with actual start time
-      final bookingDateTime = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-        startTime.hour,
-        startTime.minute,
-      );
+        // Create booking datetime with actual start time
+        final bookingDateTime = DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+          startTime.hour,
+          startTime.minute,
+        );
 
-      // Create booking
-      await _firestore.collection('bookings').add({
-        'userId': userId,
-        'subscriptionId': selectedSubscriptionId,
-        'suiteType': _getSuiteTypeForSpecialty(specialty),
-        'specialty': specialty,
-        'bookingDate': Timestamp.fromDate(bookingDateTime),
-        'timeSlot': selectedTime,
-        'startTime': startTimeStr,
-        'endTime': endTimeStr,
-        'durationHours': durationHours,
-        'durationMins': durationMinutes % 60,
-        'totalDurationMins': durationMinutes,
-        'chargedMinutes': minutesToDeduct,
-        'hasExtendedHoursBonus': hasExtendedHoursBonus,
-        'status': 'confirmed',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        // Create booking reference (atomic operation)
+        final bookingRef = _firestore.collection('bookings').doc();
+        transaction.set(bookingRef, {
+          'userId': userId,
+          'subscriptionId': selectedSubscriptionId,
+          'suiteType': suiteType,
+          'specialty': specialty,
+          'bookingDate': Timestamp.fromDate(bookingDateTime),
+          'timeSlot': selectedTime,
+          'startTime': startTimeStr,
+          'endTime': endTimeStr,
+          'durationHours': durationHours,
+          'durationMins': durationMinutes % 60,
+          'totalDurationMins': durationMinutes,
+          'chargedMinutes': minutesToDeduct,
+          'hasExtendedHoursBonus': hasExtendedHoursBonus,
+          'status': 'confirmed',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        // Update subscription atomically
+        final sub = subscriptions.firstWhere(
+          (s) => s['id'] == selectedSubscriptionId,
+          orElse: () => {},
+        );
+
+        if (sub.isNotEmpty) {
+          final hours = sub['remainingHours'] as int? ?? 0;
+          final mins = sub['remainingMinutes'] as int? ?? 0;
+          final totalMins = (hours * 60) + mins;
+
+          if (totalMins >= minutesToDeduct) {
+            final newTotal = totalMins - minutesToDeduct;
+            final newHours = newTotal ~/ 60;
+            final newMins = newTotal % 60;
+
+            final subscriptionRef = _firestore
+                .collection('subscriptions')
+                .doc(selectedSubscriptionId);
+            transaction.update(subscriptionRef, {
+              'remainingHours': newHours,
+              'remainingMinutes': newMins,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          }
+        }
       });
 
-      // Update subscription
-      await _updateSubscription(
-        subscriptionId: selectedSubscriptionId!,
-        subscriptions: subscriptions,
-        minutesToDeduct: minutesToDeduct,
-      );
-
+      // Success message (outside transaction)
       if (context.mounted) {
         final exactHours = durationMinutes / 60.0;
         final hoursText = exactHours == exactHours.floor()
@@ -271,38 +300,6 @@ class LiveBookingHelper {
       }
     }
     return true;
-  }
-
-  Future<void> _updateSubscription({
-    required String subscriptionId,
-    required List<Map<String, dynamic>> subscriptions,
-    required int minutesToDeduct,
-  }) async {
-    final sub = subscriptions.firstWhere(
-      (s) => s['id'] == subscriptionId,
-      orElse: () => {},
-    );
-
-    if (sub.isNotEmpty) {
-      final hours = sub['remainingHours'] as int? ?? 0;
-      final mins = sub['remainingMinutes'] as int? ?? 0;
-      final totalMins = (hours * 60) + mins;
-
-      if (totalMins >= minutesToDeduct) {
-        final newTotal = totalMins - minutesToDeduct;
-        final newHours = newTotal ~/ 60;
-        final newMins = newTotal % 60;
-
-        await _firestore
-            .collection('subscriptions')
-            .doc(subscriptionId)
-            .update({
-              'remainingHours': newHours,
-              'remainingMinutes': newMins,
-              'updatedAt': FieldValue.serverTimestamp(),
-            });
-      }
-    }
   }
 
   String _getSuiteTypeForSpecialty(String specialty) {

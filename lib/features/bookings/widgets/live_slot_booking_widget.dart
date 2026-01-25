@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/slot_availability_service.dart';
+import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehat_makaan_flutter/features/bookings/services/slot_availability_service.dart';
 import '../services/live_booking_helper.dart';
-import '../utils/duration_calculator.dart';
+import 'package:sehat_makaan_flutter/features/bookings/utils/duration_calculator.dart';
 import 'duration_button_widget.dart';
 import 'subscription_selector_widget.dart';
 import 'specialty_dropdown_widget.dart';
@@ -38,7 +39,8 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
   bool _isLoadingSlots = false;
   List<Map<String, dynamic>> _subscriptions = [];
   String? _selectedSubscriptionId;
-  List<String> _availableSlots = [];
+  List<Map<String, dynamic>> _availableSlots = [];
+  int _maxPossibleDuration = 4; // Default max duration
 
   @override
   void initState() {
@@ -160,6 +162,12 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
   }
 
   void _handleSlotSelection(String slot) {
+    // Find the slot data to get maxPossibleDuration
+    final slotData = _availableSlots.firstWhere(
+      (s) => s['slot'] == slot,
+      orElse: () => {'slot': slot, 'maxPossibleDuration': 4},
+    );
+
     final parts = slot.split(':');
     final hour = int.parse(parts[0]);
     final minute = int.parse(parts[1]);
@@ -167,6 +175,7 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
     setState(() {
       _selectedTime = slot;
       _startTime = TimeOfDay(hour: hour, minute: minute);
+      _maxPossibleDuration = slotData['maxPossibleDuration'] as int;
 
       // Default 1-hour duration
       final startMins = hour * 60 + minute;
@@ -201,6 +210,30 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
       addonCode: 'priority_booking',
     );
 
+    // Calculate next booking start time based on maxPossibleDuration
+    DateTime? nextBookingStart;
+    if (_maxPossibleDuration < 4) {
+      final startMins = _startTime!.hour * 60 + _startTime!.minute;
+      const bufferTimeMins = AppConstants.turnoverBufferMinutes;
+      const hardLimitMins = 22 * 60;
+
+      // Calculate when next booking would start
+      final maxEndMins =
+          startMins + (_maxPossibleDuration * 60) + bufferTimeMins;
+      if (maxEndMins < hardLimitMins) {
+        final nextHour = maxEndMins ~/ 60;
+        final nextMin = maxEndMins % 60;
+        // Create DateTime directly (no invalid cast)
+        nextBookingStart = DateTime(
+          _selectedDate.year,
+          _selectedDate.month,
+          _selectedDate.day,
+          nextHour,
+          nextMin,
+        );
+      }
+    }
+
     final endTime = DurationCalculator.calculateEndTime(
       startTime: _startTime!,
       hours: hours,
@@ -208,6 +241,7 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
       hasExtendedHours: hasExtendedHours,
       hasPriorityBooking: hasPriorityBooking,
       context: context,
+      nextBookingStart: nextBookingStart,
     );
 
     if (endTime != null) {
@@ -414,6 +448,7 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
                 selectedDate: _selectedDate,
                 selectedSubscriptionId: _selectedSubscriptionId,
                 subscriptions: _subscriptions,
+                maxPossibleDuration: _maxPossibleDuration,
                 onPressed: () => _setDuration(1),
               ),
             ),
@@ -427,6 +462,7 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
                 selectedDate: _selectedDate,
                 selectedSubscriptionId: _selectedSubscriptionId,
                 subscriptions: _subscriptions,
+                maxPossibleDuration: _maxPossibleDuration,
                 onPressed: () => _setDuration(2),
               ),
             ),
@@ -440,6 +476,7 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
                 selectedDate: _selectedDate,
                 selectedSubscriptionId: _selectedSubscriptionId,
                 subscriptions: _subscriptions,
+                maxPossibleDuration: _maxPossibleDuration,
                 onPressed: () => _setDuration(3),
               ),
             ),
@@ -453,6 +490,7 @@ class _LiveSlotBookingWidgetState extends State<LiveSlotBookingWidget> {
                 selectedDate: _selectedDate,
                 selectedSubscriptionId: _selectedSubscriptionId,
                 subscriptions: _subscriptions,
+                maxPossibleDuration: _maxPossibleDuration,
                 onPressed: () => _setDuration(4),
               ),
             ),
