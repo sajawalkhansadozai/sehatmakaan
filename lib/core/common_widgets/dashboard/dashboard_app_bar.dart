@@ -6,6 +6,7 @@ class DashboardAppBar extends StatelessWidget {
   final int notificationCount;
   final VoidCallback onMenuPressed;
   final VoidCallback onNotificationPressed;
+  final Widget? cartWidget; // Optional shopping cart widget
 
   const DashboardAppBar({
     super.key,
@@ -14,6 +15,7 @@ class DashboardAppBar extends StatelessWidget {
     required this.notificationCount,
     required this.onMenuPressed,
     required this.onNotificationPressed,
+    this.cartWidget, // Shopping cart integration
   });
 
   @override
@@ -58,6 +60,8 @@ class DashboardAppBar extends StatelessWidget {
                 ],
               ),
             ),
+            // Shopping cart icon (if provided)
+            if (cartWidget != null) cartWidget!,
             Stack(
               children: [
                 IconButton(

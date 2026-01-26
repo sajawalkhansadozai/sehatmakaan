@@ -96,7 +96,7 @@ class DurationCalculator {
               '⏰ Booking capped at 22:00 (10 PM) - Hard closing time',
             ),
             backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
+            duration: Duration(seconds: 3),
           ),
         );
       }

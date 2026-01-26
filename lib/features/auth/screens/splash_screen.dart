@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import '../services/user_status_service.dart';
+import '../../../shared/fcm_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -144,6 +145,11 @@ class _SplashScreenState extends State<SplashScreen>
             // Start real-time status monitoring
             await UserStatusService.startMonitoring(context, userId);
             debugPrint('✅ User status monitoring started from splash');
+
+            // Initialize FCM for push notifications
+            final fcmService = FCMService();
+            await fcmService.initialize(userId);
+            debugPrint('✅ FCM initialized in splash screen for user: $userId');
 
             // Account is valid - proceed to dashboard
             final userEmail = prefs.getString('user_email') ?? '';

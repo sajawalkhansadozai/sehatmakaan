@@ -2,6 +2,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../services/cart_service.dart';
 
 /// Premium Workshop Card with Hero Animation, Glassmorphism, and Interactive Effects
 class WorkshopCard extends StatefulWidget {
@@ -176,6 +178,7 @@ class _WorkshopCardState extends State<WorkshopCard>
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: () => _openSyllabusPdf(
+                            context,
                             widget.workshop['syllabusPdf'] as String,
                           ),
                           icon: const Icon(Icons.file_present),
@@ -193,6 +196,54 @@ class _WorkshopCardState extends State<WorkshopCard>
                         ),
                       ),
                       SizedBox(height: isSmallScreen ? 8 : 12),
+                    ],
+
+                    // 🚀 JOIN WORKSHOP BUTTON (for participants)
+                    if (!widget.isCreator) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: widget.onTap,
+                          icon: const Icon(Icons.event_available),
+                          label: const Text('Join Workshop'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF006876),
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(
+                              vertical: isSmallScreen ? 11 : 13,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 8 : 10),
+
+                      // 🛒 ADD TO CART BUTTON
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _addToCart(context),
+                          icon: const Icon(Icons.add_shopping_cart),
+                          label: const Text('Add to Cart'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange.shade700,
+                            side: BorderSide(
+                              color: Colors.orange.shade700,
+                              width: 1.5,
+                            ),
+                            padding: EdgeInsets.symmetric(
+                              vertical: isSmallScreen ? 10 : 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 10 : 12),
                     ],
 
                     // 🎯 CREATOR ACTION BUTTONS
@@ -841,7 +892,7 @@ class _WorkshopCardState extends State<WorkshopCard>
   }
 
   /// 📋 OPEN SYLLABUS PDF IN BROWSER
-  Future<void> _openSyllabusPdf(String pdfUrl) async {
+  Future<void> _openSyllabusPdf(BuildContext context, String pdfUrl) async {
     try {
       debugPrint('📄 Opening syllabus PDF: $pdfUrl');
       if (await canLaunchUrl(Uri.parse(pdfUrl))) {
@@ -850,10 +901,59 @@ class _WorkshopCardState extends State<WorkshopCard>
           mode: LaunchMode.externalApplication,
         );
       } else {
-        debugPrint('❌ Could not launch PDF URL');
+        throw 'Could not launch PDF';
       }
     } catch (e) {
       debugPrint('❌ Error opening PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error opening PDF: $e')));
+      }
+    }
+  }
+
+  /// 🛒 ADD WORKSHOP TO CART
+  Future<void> _addToCart(BuildContext context) async {
+    try {
+      // Get user ID from shared preferences
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('user_id');
+
+      if (userId == null || userId.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please login to add items to cart'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Create cart item from workshop
+      final cartItem = CartService.createWorkshopCartItem(widget.workshop);
+
+      // Add to cart using CartService
+      final cartService = CartService();
+      final success = await cartService.addToCart(
+        context: context,
+        userId: userId,
+        item: cartItem,
+        showSnackbar: true,
+      );
+
+      if (success) {
+        debugPrint('✅ Workshop added to cart: ${widget.workshop['title']}');
+      }
+    } catch (e) {
+      debugPrint('❌ Error adding workshop to cart: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 }

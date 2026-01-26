@@ -7,6 +7,7 @@ import '../../services/workshop_service.dart';
 import '../../models/workshop_model.dart';
 import '../../models/workshop_registration_model.dart';
 import '../../widgets/workshop_card_widget.dart';
+import '../../widgets/my_joined_workshops_widget.dart';
 
 class WorkshopsPage extends StatefulWidget {
   final Map<String, dynamic> userSession;
@@ -31,6 +32,11 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
   StreamSubscription<List<WorkshopModel>>? _proposalsSubscription;
   StreamSubscription<List<WorkshopRegistrationModel>>?
   _registrationsSubscription;
+
+  // 📄 Pagination State
+  static const int _workshopsPerPage = 12;
+  bool _hasMoreWorkshops = true;
+  DocumentSnapshot? _lastDocument;
 
   // GOD MODE: System settings
   Map<String, dynamic> _systemSettings = {};
@@ -199,19 +205,35 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
     setState(() => _isLoading = true);
 
     try {
-      final query = await _firestore
+      // 📄 Paginated query: Load workshops in batches
+      Query query = _firestore
           .collection('workshops')
           .where('isActive', isEqualTo: true)
           .orderBy('createdAt', descending: true)
-          .get();
+          .limit(_workshopsPerPage);
 
-      final workshops = query.docs.map((doc) {
-        final data = doc.data();
+      // If loading next page, start after last document
+      if (_lastDocument != null) {
+        query = query.startAfterDocument(_lastDocument!);
+      }
+
+      final querySnapshot = await query.get();
+
+      // Check if we've reached the end
+      _hasMoreWorkshops = querySnapshot.docs.length == _workshopsPerPage;
+
+      // Store last document for pagination
+      if (querySnapshot.docs.isNotEmpty) {
+        _lastDocument = querySnapshot.docs.last;
+      }
+
+      final workshops = querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
 
-      // 🚀 Load creator names efficiently using whereIn (batch query)
+      // 🚀 Load creator names from users collection (createdBy holds userId)
       final creatorIds = workshops
           .where((w) => w['createdBy'] != null)
           .map((w) => w['createdBy'] as String)
@@ -221,34 +243,34 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
 
       if (creatorIds.isNotEmpty) {
         try {
-          // ✅ FIX: Use whereIn to fetch multiple creators in ONE query
           // Firestore whereIn limit is 30 items, so batch if needed
           final List<String> creatorIdsList = creatorIds.toList();
 
-          // Process in batches of 30 (Firestore whereIn limit)
           for (int i = 0; i < creatorIdsList.length; i += 30) {
             final batch = creatorIdsList.skip(i).take(30).toList();
 
-            final creatorsSnapshot = await _firestore
-                .collection('workshop_creators')
+            final usersSnapshot = await _firestore
+                .collection('users')
                 .where(FieldPath.documentId, whereIn: batch)
                 .get();
 
-            for (final doc in creatorsSnapshot.docs) {
-              creatorNames[doc.id] =
-                  doc.data()['fullName'] ?? 'Unknown Creator';
+            for (final doc in usersSnapshot.docs) {
+              final data = doc.data();
+              final name =
+                  data['fullName'] ??
+                  data['name'] ??
+                  data['firstName'] ??
+                  'Unknown Creator';
+              creatorNames[doc.id] = name.toString();
             }
           }
 
           // Add "Unknown Creator" for missing IDs
           for (final id in creatorIds) {
-            if (!creatorNames.containsKey(id)) {
-              creatorNames[id] = 'Unknown Creator';
-            }
+            creatorNames.putIfAbsent(id, () => 'Unknown Creator');
           }
         } catch (e) {
           debugPrint('❌ Error loading creators: $e');
-          // Fallback: mark all as unknown
           for (final id in creatorIds) {
             creatorNames[id] = 'Unknown Creator';
           }
@@ -400,6 +422,13 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
           if (_myRegistrations.isNotEmpty) ...[
             SliverToBoxAdapter(child: _buildMyRegistrationsSection()),
           ],
+          // 🎯 MY JOINED WORKSHOPS: Show only confirmed registrations
+          SliverToBoxAdapter(
+            child: MyJoinedWorkshopsWidget(
+              userId: userId ?? '',
+              userSession: widget.userSession,
+            ),
+          ),
           SliverPadding(
             padding: const EdgeInsets.all(16),
             sliver: _isLoading
@@ -602,10 +631,56 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
   Widget _buildWorkshopGrid() {
     return SliverList(
       delegate: SliverChildBuilderDelegate((context, index) {
-        final workshop = _workshops[index];
-        return _buildWorkshopCard(workshop);
-      }, childCount: _workshops.length),
+        // Show workshop cards
+        if (index < _workshops.length) {
+          final workshop = _workshops[index];
+          return _buildWorkshopCard(workshop);
+        }
+
+        // Show "Load More" button at the end if there are more workshops
+        if (index == _workshops.length && _hasMoreWorkshops) {
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Center(
+              child: ElevatedButton.icon(
+                onPressed: _isLoading ? null : _loadMoreWorkshops,
+                icon: _isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.expand_more),
+                label: Text(_isLoading ? 'Loading...' : 'Load More Workshops'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF006876),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        return const SizedBox.shrink();
+      }, childCount: _workshops.length + (_hasMoreWorkshops ? 1 : 0)),
     );
+  }
+
+  /// 📄 Load more workshops (pagination)
+  Future<void> _loadMoreWorkshops() async {
+    if (!_hasMoreWorkshops || _isLoading) return;
+
+    await _loadWorkshops();
   }
 
   /// 🎨 PREMIUM WORKSHOP CARD USING NEW WIDGET
@@ -621,6 +696,7 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
         // GOD MODE: Check restrictions before allowing registration
         if (!_canPerformAction()) return;
 
+        // ✅ PROPER FLOW: Go to registration form first
         Navigator.pushNamed(
           context,
           '/workshop-registration',
@@ -778,51 +854,70 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
-        _buildStatCard(
-          icon: Icons.attach_money,
-          title: 'Total Revenue',
-          value: 'PKR ${totalRevenue.toStringAsFixed(0)}',
-          subtitle: 'From $filledSeats participants',
-          iconColor: const Color(0xFFFFD700),
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFFFFD700).withValues(alpha: 0.2),
-              const Color(0xFFFFA500).withValues(alpha: 0.2),
-            ],
+        // 💰 TOTAL REVENUE CARD - Tap to see breakdown
+        GestureDetector(
+          onTap: () => _showRevenueBreakdown(workshops),
+          child: _buildStatCard(
+            icon: Icons.attach_money,
+            title: 'Total Revenue',
+            value: 'PKR ${totalRevenue.toStringAsFixed(0)}',
+            subtitle: 'From $filledSeats participants',
+            iconColor: const Color(0xFFFFD700),
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFFFD700).withValues(alpha: 0.2),
+                const Color(0xFFFFA500).withValues(alpha: 0.2),
+              ],
+            ),
+            isClickable: true,
           ),
         ),
         const SizedBox(width: 12),
-        _buildStatCard(
-          icon: Icons.notifications_active,
-          title: 'Pending Requests',
-          value: pendingCount.toString(),
-          subtitle: pendingCount == 1
-              ? '1 person waiting'
-              : '$pendingCount people waiting',
-          iconColor: const Color(0xFFFF6B35),
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFFFF6B35).withValues(alpha: 0.2),
-              const Color(0xFFFF8C42).withValues(alpha: 0.2),
-            ],
+        // 🔔 PENDING REQUESTS CARD - Tap to view requests
+        GestureDetector(
+          onTap: pendingCount > 0
+              ? () => _showAllPendingRequests(workshops)
+              : null,
+          child: _buildStatCard(
+            icon: Icons.notifications_active,
+            title: 'Pending Requests',
+            value: pendingCount.toString(),
+            subtitle: pendingCount == 1
+                ? '1 person waiting'
+                : pendingCount == 0
+                ? 'No pending requests'
+                : '$pendingCount people waiting',
+            iconColor: const Color(0xFFFF6B35),
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFFF6B35).withValues(alpha: 0.2),
+                const Color(0xFFFF8C42).withValues(alpha: 0.2),
+              ],
+            ),
+            isPulsing: pendingCount > 0,
+            isClickable: pendingCount > 0,
           ),
-          isPulsing: pendingCount > 0,
         ),
         const SizedBox(width: 12),
-        _buildStatCard(
-          icon: Icons.event_seat,
-          title: 'Seats Filled',
-          value: '${fillPercentage.toStringAsFixed(0)}%',
-          subtitle: '$filledSeats / $totalSeats seats',
-          iconColor: const Color(0xFF90D26D),
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFF90D26D).withValues(alpha: 0.2),
-              const Color(0xFF70B24D).withValues(alpha: 0.2),
-            ],
+        // 💺 SEATS FILLED CARD - Tap to see seat allocation
+        GestureDetector(
+          onTap: () => _showSeatsBreakdown(workshops, filledSeats, totalSeats),
+          child: _buildStatCard(
+            icon: Icons.event_seat,
+            title: 'Seats Filled',
+            value: '${fillPercentage.toStringAsFixed(0)}%',
+            subtitle: '$filledSeats / $totalSeats seats',
+            iconColor: const Color(0xFF90D26D),
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFF90D26D).withValues(alpha: 0.2),
+                const Color(0xFF70B24D).withValues(alpha: 0.2),
+              ],
+            ),
+            showProgress: true,
+            progressValue: fillPercentage / 100,
+            isClickable: true,
           ),
-          showProgress: true,
-          progressValue: fillPercentage / 100,
         ),
       ],
     );
@@ -838,6 +933,7 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
     bool isPulsing = false,
     bool showProgress = false,
     double progressValue = 0.0,
+    bool isClickable = false,
   }) {
     return Container(
       width: 180,
@@ -846,8 +942,10 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
         gradient: gradient,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.3),
-          width: 1,
+          color: isClickable
+              ? Colors.white.withValues(alpha: 0.5)
+              : Colors.white.withValues(alpha: 0.3),
+          width: isClickable ? 2 : 1,
         ),
       ),
       child: SingleChildScrollView(
@@ -896,6 +994,12 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
                       }
                     },
                   ),
+                if (isClickable && !isPulsing)
+                  Icon(
+                    Icons.touch_app,
+                    color: Colors.white.withValues(alpha: 0.6),
+                    size: 16,
+                  ),
               ],
             ),
             const SizedBox(height: 12),
@@ -935,13 +1039,495 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+            if (isClickable) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Tap for details',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  /// 📊 DEEP ANALYTICS BOTTOM SHEET
+  /// � REVENUE BREAKDOWN DIALOG
+  void _showRevenueBreakdown(List<Map<String, dynamic>> workshops) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 400),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.attach_money,
+                      color: Color(0xFFFFD700),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Revenue Breakdown',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF006876),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              if (workshops.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Center(child: Text('No workshops yet')),
+                ),
+              if (workshops.isNotEmpty)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 300),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: workshops.length,
+                    itemBuilder: (context, index) {
+                      final workshop = workshops[index];
+                      final price =
+                          (workshop['price'] as num?)?.toDouble() ?? 0;
+                      final participants =
+                          (workshop['currentParticipants'] as int?) ?? 0;
+                      final revenue = price * participants;
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(
+                              0xFFFFD700,
+                            ).withValues(alpha: 0.2),
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(
+                                color: Color(0xFFFFD700),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            workshop['title'] ?? 'Untitled',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            '$participants participants × PKR ${price.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: Text(
+                            'PKR ${revenue.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF006876),
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF006876),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 🔔 ALL PENDING REQUESTS DIALOG
+  void _showAllPendingRequests(List<Map<String, dynamic>> workshops) {
+    final workshopIds = workshops
+        .map((w) => w['id'] as String?)
+        .where((id) => id != null)
+        .cast<String>()
+        .toList();
+
+    if (workshopIds.isEmpty) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 450),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B35).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_active,
+                      color: Color(0xFFFF6B35),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Pending Requests',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF006876),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              StreamBuilder<QuerySnapshot>(
+                stream: _firestore
+                    .collection('workshop_registrations')
+                    .where('workshopId', whereIn: workshopIds.take(10).toList())
+                    .where('approvalStatus', isEqualTo: 'pending_creator')
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+
+                  final requests = snapshot.data!.docs;
+
+                  if (requests.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Center(child: Text('No pending requests')),
+                    );
+                  }
+
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 350),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: requests.length,
+                      itemBuilder: (context, index) {
+                        final registration =
+                            requests[index].data() as Map<String, dynamic>;
+                        final firstName = registration['firstName'] ?? '';
+                        final lastName = registration['lastName'] ?? '';
+                        final email = registration['email'] ?? '';
+                        final workshopId = registration['workshopId'] ?? '';
+                        final workshop = workshops.firstWhere(
+                          (w) => w['id'] == workshopId,
+                          orElse: () => {},
+                        );
+
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: const Color(
+                                0xFFFF6B35,
+                              ).withValues(alpha: 0.2),
+                              child: Text(
+                                '${firstName[0]}${lastName[0]}'.toUpperCase(),
+                                style: const TextStyle(
+                                  color: Color(0xFFFF6B35),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              '$firstName $lastName',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  email,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                if (workshop.isNotEmpty)
+                                  Text(
+                                    workshop['title'] ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(
+                                Icons.arrow_forward_ios,
+                                size: 16,
+                              ),
+                              onPressed: () {
+                                Navigator.pop(context);
+                                if (workshop.isNotEmpty) {
+                                  _showJoinRequestsDialog(workshop);
+                                }
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF006876),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 💺 SEATS BREAKDOWN DIALOG
+  void _showSeatsBreakdown(
+    List<Map<String, dynamic>> workshops,
+    int filledSeats,
+    int totalSeats,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 400),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF90D26D).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.event_seat,
+                      color: Color(0xFF90D26D),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Seats Overview',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF006876),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF90D26D).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Column(
+                      children: [
+                        Text(
+                          filledSeats.toString(),
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF90D26D),
+                          ),
+                        ),
+                        const Text(
+                          'Filled',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      children: [
+                        Text(
+                          (totalSeats - filledSeats).toString(),
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const Text(
+                          'Available',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      children: [
+                        Text(
+                          totalSeats.toString(),
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF006876),
+                          ),
+                        ),
+                        const Text(
+                          'Total',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (workshops.isNotEmpty)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 250),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: workshops.length,
+                    itemBuilder: (context, index) {
+                      final workshop = workshops[index];
+                      final current =
+                          (workshop['currentParticipants'] as int?) ?? 0;
+                      final max = (workshop['maxParticipants'] as int?) ?? 0;
+                      final percentage = max > 0
+                          ? (current / max * 100).clamp(0, 100)
+                          : 0.0;
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          title: Text(
+                            workshop['title'] ?? 'Untitled',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 4),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: percentage / 100,
+                                  backgroundColor: Colors.grey.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                  valueColor:
+                                      const AlwaysStoppedAnimation<Color>(
+                                        Color(0xFF90D26D),
+                                      ),
+                                  minHeight: 6,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$current / $max seats (${percentage.toStringAsFixed(0)}%)',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF006876),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// �📊 DEEP ANALYTICS BOTTOM SHEET
   void _showWorkshopAnalytics(Map<String, dynamic> workshop) {
     final workshopId = workshop['id'] as String?;
     if (workshopId == null) return;

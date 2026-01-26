@@ -16,6 +16,7 @@ import 'package:sehat_makaan_flutter/features/admin/utils/admin_styles.dart';
 import 'package:sehat_makaan_flutter/features/admin/utils/responsive_helper.dart';
 import 'package:sehat_makaan_flutter/features/admin/services/admin_data_service.dart';
 import 'package:sehat_makaan_flutter/features/admin/services/admin_mutations_service.dart';
+import 'package:sehat_makaan_flutter/services/session_storage_service.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   final Map<String, dynamic> adminSession;
@@ -768,9 +769,16 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         color: Colors.white.withValues(alpha: 0.3),
                       ),
                     ),
-                    onSelected: (String value) {
+                    onSelected: (String value) async {
                       if (value == 'logout') {
-                        Navigator.pop(context); // Return to login
+                        // Clear encrypted session
+                        final sessionService = SessionStorageService();
+                        await sessionService.clearUserSession();
+                        debugPrint('🔓 Admin session cleared');
+
+                        if (context.mounted) {
+                          Navigator.pop(context); // Return to login
+                        }
                       } else {
                         setState(() {
                           _selectedSection = value;

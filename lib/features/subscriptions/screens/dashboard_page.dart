@@ -12,6 +12,7 @@ import 'package:sehat_makaan_flutter/features/bookings/widgets/booking_card.dart
 import 'package:sehat_makaan_flutter/core/utils/dashboard_utils.dart';
 import 'package:sehat_makaan_flutter/shared/fcm_service.dart';
 import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehat_makaan_flutter/features/payments/widgets/shopping_cart_widget.dart';
 
 class DashboardPage extends StatefulWidget {
   final Map<String, dynamic> userSession;
@@ -621,6 +622,17 @@ class _DashboardPageState extends State<DashboardPage>
                 debugPrint('🔔 Notification button pressed');
                 _scaffoldKey.currentState?.openEndDrawer();
               },
+              // 🛒 Shopping Cart Integration
+              cartWidget: IconTheme(
+                data: const IconThemeData(color: Colors.white),
+                child: ShoppingCartWidget(
+                  userSession: widget.userSession,
+                  onCheckout: () {
+                    // Navigate to checkout page
+                    Navigator.pushNamed(context, '/checkout');
+                  },
+                ),
+              ),
             ),
             Expanded(
               child: _isLoading

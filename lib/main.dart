@@ -28,6 +28,7 @@ import 'features/payments/screens/checkout_page.dart';
 import 'features/bookings/screens/my_schedule_page.dart';
 import 'features/bookings/screens/live_slot_booking_page.dart';
 import 'core/common_widgets/not_found_page.dart';
+import 'services/session_storage_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -134,43 +135,49 @@ class SehatMakaanApp extends StatelessWidget {
         return MaterialPageRoute(builder: (_) => const PackagesPage());
 
       case '/dashboard':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => DashboardPage(userSession: userSession),
         );
 
       case '/analytics':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => AnalyticsPage(userSession: userSession),
         );
 
       case '/settings':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => SettingsPage(userSession: userSession),
         );
 
       case '/monthly-dashboard':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => MonthlyDashboardPage(userSession: userSession),
         );
 
       case '/workshops':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => WorkshopsPage(userSession: userSession),
         );
 
       case '/create-workshop':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => CreateWorkshopPage(userSession: userSession),
         );
@@ -188,25 +195,30 @@ class SehatMakaanApp extends StatelessWidget {
         );
 
       case '/booking-workflow':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => BookingWorkflowPage(userSession: userSession),
         );
 
       case '/live-slot-booking':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => LiveSlotBookingPage(userSession: userSession),
         );
 
       case '/workshop-registration':
         if (args is Map<String, dynamic>) {
+          final userSession = args['userSession'] is Map<String, dynamic>
+              ? args['userSession'] as Map<String, dynamic>
+              : <String, dynamic>{};
           return MaterialPageRoute(
             builder: (_) => WorkshopRegistrationPage(
               workshop: args['workshop'],
-              userSession: args['userSession'] ?? _getStoredUserSession(),
+              userSession: userSession,
             ),
           );
         }
@@ -218,7 +230,18 @@ class SehatMakaanApp extends StatelessWidget {
         );
 
       case '/workshop-checkout':
-        return MaterialPageRoute(builder: (_) => const WorkshopCheckoutPage());
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => const WorkshopCheckoutPage(),
+            settings: RouteSettings(arguments: args),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Workshop Checkout')),
+            body: const Center(child: Text('Missing checkout data')),
+          ),
+        );
 
       case '/workshop-creation-fee-checkout':
         if (args is Map<String, dynamic>) {
@@ -252,10 +275,13 @@ class SehatMakaanApp extends StatelessWidget {
 
       case '/checkout':
         if (args is Map<String, dynamic>) {
+          final userSession = args['userSession'] is Map<String, dynamic>
+              ? args['userSession'] as Map<String, dynamic>
+              : <String, dynamic>{};
           return MaterialPageRoute(
             builder: (_) => CheckoutPage(
               cartItems: args['cartItems'] ?? [],
-              userSession: args['userSession'] ?? _getStoredUserSession(),
+              userSession: userSession,
             ),
           );
         }
@@ -267,15 +293,17 @@ class SehatMakaanApp extends StatelessWidget {
         );
 
       case '/my-schedule':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => MySchedulePage(userSession: userSession),
         );
 
       case '/help-support':
-        final Map<String, dynamic> userSession =
-            args as Map<String, dynamic>? ?? _getStoredUserSession();
+        final userSession = args is Map<String, dynamic>
+            ? args
+            : <String, dynamic>{};
         return MaterialPageRoute(
           builder: (_) => HelpAndSupportPage(userSession: userSession),
         );
@@ -287,9 +315,20 @@ class SehatMakaanApp extends StatelessWidget {
     }
   }
 
-  Map<String, dynamic> _getStoredUserSession() {
-    // Return empty session - will be populated after login
-    // Routes should handle empty session gracefully
-    return {};
+  /// Get stored user session from secure encrypted storage
+  /// Uses SessionStorageService for encrypted session persistence
+  // ignore: unused_element
+  Future<Map<String, dynamic>> _getStoredUserSession() async {
+    try {
+      final sessionService = SessionStorageService();
+      final session = await sessionService.getUserSession();
+      debugPrint(
+        '📱 Loaded session from secure storage: ${session.isNotEmpty}',
+      );
+      return session;
+    } catch (e) {
+      debugPrint('⚠️ Error loading session: $e');
+      return {};
+    }
   }
 }

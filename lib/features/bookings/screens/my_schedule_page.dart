@@ -1053,12 +1053,83 @@ class _MySchedulePageState extends State<MySchedulePage>
   }
 
   void _showCancelDialog(Map<String, dynamic> booking) {
+    // Calculate if cancellation is within 24 hours
+    final bookingDate = (booking['date'] as Timestamp?)?.toDate();
+    final now = DateTime.now();
+    bool isWithin24Hours = false;
+    String refundMessage = '';
+
+    if (bookingDate != null) {
+      final difference = bookingDate.difference(now);
+      isWithin24Hours = difference.inHours < 24;
+
+      if (isWithin24Hours) {
+        refundMessage =
+            '⚠️ Cancelling within 24 hours: Hours will NOT be refunded.\n\nTime until booking: ${difference.inHours}h ${difference.inMinutes % 60}m';
+      } else {
+        refundMessage =
+            '✅ Cancelling more than 24 hours in advance: Hours will be refunded.\n\nTime until booking: ${difference.inDays} days ${difference.inHours % 24} hours';
+      }
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Cancel Booking'),
-        content: const Text(
-          'Are you sure you want to cancel this booking? If cancelled within 24 hours of the booking time, hours will not be refunded.',
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: isWithin24Hours ? Colors.red : Colors.orange,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            const Text('Cancel Booking?'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Are you sure you want to cancel this booking?',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isWithin24Hours
+                    ? Colors.red.shade50
+                    : Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isWithin24Hours
+                      ? Colors.red.shade200
+                      : Colors.green.shade200,
+                ),
+              ),
+              child: Text(
+                refundMessage,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isWithin24Hours
+                      ? Colors.red.shade900
+                      : Colors.green.shade900,
+                  height: 1.5,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'This action cannot be undone.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -1073,8 +1144,9 @@ class _MySchedulePageState extends State<MySchedulePage>
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
-            child: const Text('Yes, Cancel'),
+            child: const Text('Yes, Cancel Booking'),
           ),
         ],
       ),

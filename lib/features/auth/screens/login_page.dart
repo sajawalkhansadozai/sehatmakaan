@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehat_makaan_flutter/services/session_storage_service.dart';
 import '../services/user_status_service.dart';
 import 'dart:math';
 
@@ -344,12 +345,24 @@ class _LoginPageState extends State<LoginPage> {
         throw Exception('Account Pending Approval');
       }
 
-      // Save session
+      // Prepare session data
+      final userSessionData = {
+        'id': user.uid,
+        'email': userData['email'],
+        'fullName': userData['fullName'],
+        'userType': userData['userType'] ?? 'doctor',
+        'status': userData['status'],
+        'isActive': userData['isActive'] ?? true,
+      };
+
+      // 🔐 Save session securely using SessionStorageService (encrypted)
+      final sessionService = SessionStorageService();
+      await sessionService.saveUserSession(userSessionData);
+      debugPrint('✅ Session saved securely with encryption');
+
+      // Also save to SharedPreferences for backward compatibility
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_id', user.uid);
-      await prefs.setString('user_email', userData['email']);
-      await prefs.setString('user_full_name', userData['fullName'] ?? '');
-      await prefs.setString('user_type', userData['userType'] ?? 'doctor');
       await prefs.setString('login_status', 'logged_in');
 
       if (mounted) {
@@ -361,15 +374,6 @@ class _LoginPageState extends State<LoginPage> {
             backgroundColor: Color(0xFF90D26D),
           ),
         );
-
-        final userSessionData = {
-          'id': user.uid,
-          'email': userData['email'],
-          'fullName': userData['fullName'],
-          'userType': userData['userType'] ?? 'doctor',
-          'status': userData['status'],
-          'isActive': userData['isActive'] ?? true,
-        };
 
         debugPrint('🔐 Login - Passing userSession: $userSessionData');
         debugPrint('🔐 Login - fullName: ${userData['fullName']}');

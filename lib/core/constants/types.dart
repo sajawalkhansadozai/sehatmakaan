@@ -260,6 +260,53 @@ class CartItem {
       details: details ?? this.details,
     );
   }
+
+  factory CartItem.fromJson(Map<String, dynamic> json) {
+    return CartItem(
+      id: json['id'] as String,
+      type: CartItemType.values.firstWhere(
+        (e) => e.toString() == 'CartItemType.${json['type']}',
+        orElse: () => CartItemType.package,
+      ),
+      name: json['name'] as String,
+      price: (json['price'] as num).toDouble(),
+      quantity: json['quantity'] as int,
+      suiteType: json['suiteType'] != null
+          ? SuiteType.fromString(json['suiteType'] as String)
+          : null,
+      packageType: json['packageType'] != null
+          ? PackageType.values.firstWhere(
+              (e) => e.toString() == 'PackageType.${json['packageType']}',
+              orElse: () => PackageType.starter,
+            )
+          : null,
+      hours: json['hours'] as int?,
+      code: json['code'] as String?,
+      description: json['description'] as String?,
+      specialty: json['specialty'] as String?,
+      roomType: json['roomType'] as String?,
+      details: json['details'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'type': type.toString().split('.').last,
+      'name': name,
+      'price': price,
+      'quantity': quantity,
+      if (suiteType != null) 'suiteType': suiteType!.value,
+      if (packageType != null)
+        'packageType': packageType.toString().split('.').last,
+      if (hours != null) 'hours': hours,
+      if (code != null) 'code': code,
+      if (description != null) 'description': description,
+      if (specialty != null) 'specialty': specialty,
+      if (roomType != null) 'roomType': roomType,
+      if (details != null) 'details': details,
+    };
+  }
 }
 
 /// Quick Booking Shortcut Model

@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehat_makaan_flutter/services/session_storage_service.dart';
 
 class VerificationPage extends StatefulWidget {
   final String? userId;
@@ -124,7 +125,12 @@ class _VerificationPageState extends State<VerificationPage> {
     );
 
     if (confirmed == true && context.mounted) {
-      // Clear local storage
+      // Clear encrypted session
+      final sessionService = SessionStorageService();
+      await sessionService.clearUserSession();
+      debugPrint('🔓 Session cleared from secure storage');
+
+      // Clear local storage (backward compatibility)
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('registration_status');
       await prefs.remove('user_email');

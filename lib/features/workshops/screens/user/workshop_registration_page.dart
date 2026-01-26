@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class WorkshopRegistrationPage extends StatefulWidget {
   final Map<String, dynamic> workshop;
@@ -100,25 +100,24 @@ class _WorkshopRegistrationPageState extends State<WorkshopRegistrationPage> {
             Container(
               width: double.infinity,
               height: 200,
-              decoration: BoxDecoration(color: Colors.grey.shade100),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(12),
+                  bottomRight: Radius.circular(12),
+                ),
+              ),
               child: CachedNetworkImage(
                 imageUrl: bannerImage,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
-                  color: Colors.grey.shade200,
-                  child: const Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF006876),
-                    ),
-                  ),
+                  color: Colors.grey[200],
+                  child: const Center(child: CircularProgressIndicator()),
                 ),
                 errorWidget: (context, url, error) => Container(
-                  color: const Color(0xFF006876).withValues(alpha: 0.1),
-                  child: const Icon(
-                    Icons.image_not_supported,
-                    size: 48,
-                    color: Color(0xFF006876),
+                  color: Colors.grey[200],
+                  child: const Center(
+                    child: Icon(Icons.image_not_supported, size: 50),
                   ),
                 ),
               ),
@@ -129,21 +128,22 @@ class _WorkshopRegistrationPageState extends State<WorkshopRegistrationPage> {
               height: 200,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
+                  colors: [Colors.blue[300]!, Colors.blue[600]!],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    const Color(0xFF006876),
-                    const Color(0xFF006876).withValues(alpha: 0.7),
-                  ],
+                ),
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(12),
+                  bottomRight: Radius.circular(12),
                 ),
               ),
               child: const Center(
-                child: Icon(Icons.school, size: 80, color: Colors.white54),
+                child: Icon(Icons.school, size: 80, color: Colors.white),
               ),
             ),
-          // Workshop Info
+          // TITLE AND DETAILS
           Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -155,99 +155,51 @@ class _WorkshopRegistrationPageState extends State<WorkshopRegistrationPage> {
                     color: Color(0xFF006876),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today,
-                      size: 16,
-                      color: Colors.grey,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _formatDate(widget.workshop['date']),
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                    const SizedBox(width: 16),
-                    const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Text(
-                      widget.workshop['time'] ?? '',
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'PKR ${widget.workshop['price']?.toStringAsFixed(0) ?? '0'}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFFFF6B35),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.price_change,
+                            color: Color(0xFF006876),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'PKR ${widget.workshop['price']?.toString() ?? '0'}',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF006876),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    // 📋 SYLLABUS PDF BUTTON
-                    if (syllabusPdf != null && syllabusPdf.isNotEmpty)
-                      ElevatedButton.icon(
-                        onPressed: () => _openSyllabusPdf(syllabusPdf),
-                        icon: const Icon(Icons.file_present),
-                        label: const Text('View Syllabus'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF006876),
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
                   ],
                 ),
+                if (syllabusPdf != null && syllabusPdf.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: ElevatedButton.icon(
+                      onPressed: () => _openSyllabusPdf(syllabusPdf),
+                      icon: const Icon(Icons.file_present),
+                      label: const Text('View Syllabus'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _openSyllabusPdf(String pdfUrl) async {
-    try {
-      debugPrint('Opening PDF: $pdfUrl');
-      if (await canLaunchUrl(Uri.parse(pdfUrl))) {
-        await launchUrl(
-          Uri.parse(pdfUrl),
-          mode: LaunchMode.externalApplication,
-        );
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not open PDF. Please try again.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Error opening PDF: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error opening PDF: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  String _formatDate(dynamic date) {
-    if (date == null) return '';
-    if (date is Timestamp) {
-      final dt = date.toDate();
-      return '${dt.day}/${dt.month}/${dt.year}';
-    }
-    return date.toString();
   }
 
   Widget _buildRegistrationForm() {
@@ -490,6 +442,27 @@ class _WorkshopRegistrationPageState extends State<WorkshopRegistrationPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _openSyllabusPdf(String pdfUrl) async {
+    try {
+      debugPrint('📄 Opening syllabus PDF: $pdfUrl');
+      if (await canLaunchUrl(Uri.parse(pdfUrl))) {
+        await launchUrl(
+          Uri.parse(pdfUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        throw 'Could not launch PDF';
+      }
+    } catch (e) {
+      debugPrint('❌ Error opening PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error opening PDF: $e')));
+      }
+    }
   }
 
   Future<void> _handleRegistration() async {

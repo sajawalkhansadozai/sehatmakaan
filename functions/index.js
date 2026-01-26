@@ -3329,4 +3329,219 @@ exports.onWorkshopApproval = functions.firestore
     }
   });
 
+// ============================================================================
+// PAYFAST WEBHOOK HANDLER - Handles payment confirmations
+// ============================================================================
+exports.handlePayFastWebhook = functions.https.onRequest(async (req, res) => {
+  try {
+    // Log webhook payload
+    console.log('🔔 PayFast webhook received:', req.body);
+
+    // Verify webhook is from PayFast
+    if (req.method !== 'POST') {
+      return res.status(400).json({ error: 'Only POST requests allowed' });
+    }
+
+    const {
+      m_payment_id,
+      pf_payment_id,
+      payment_status,
+      amount_gross,
+      custom_str1, // registrationId
+      custom_str2, // paymentId
+      custom_str3, // type (workshop)
+    } = req.body;
+
+    // Only process successful payments
+    if (payment_status !== 'COMPLETE') {
+      console.log('⏭️ Skipping non-complete payment status:', payment_status);
+      return res.status(200).json({ message: 'Payment not complete' });
+    }
+
+    if (custom_str3 !== 'workshop') {
+      console.log('⏭️ Skipping non-workshop payment');
+      return res.status(200).json({ message: 'Not a workshop payment' });
+    }
+
+    const registrationId = custom_str1;
+    const paymentId = custom_str2;
+
+    console.log(
+      `💳 Processing payment: ${pf_payment_id}, Amount: ${amount_gross}, Registration: ${registrationId}`
+    );
+
+    // Get workshop registration details
+    const registrationDoc = await admin
+      .firestore()
+      .collection('workshop_registrations')
+      .doc(registrationId)
+      .get();
+
+    if (!registrationDoc.exists) {
+      console.error(`❌ Registration not found: ${registrationId}`);
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+
+    const registrationData = registrationDoc.data();
+    const workshopId = registrationData.workshopId;
+    const userId = registrationData.userId;
+
+    // Update payment record
+    await admin
+      .firestore()
+      .collection('workshop_payments')
+      .doc(paymentId)
+      .update({
+        status: 'paid',
+        paymentId: pf_payment_id,
+        amount: amount_gross,
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    // Generate registration number
+    const year = new Date().getFullYear();
+    const timestamp = Date.now().toString().substring(8);
+    const registrationNumber = `WS-${year}-${timestamp}`;
+
+    // Update registration status to confirmed
+    await admin
+      .firestore()
+      .collection('workshop_registrations')
+      .doc(registrationId)
+      .update({
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        registrationNumber: registrationNumber,
+        paymentId: pf_payment_id,
+        confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    // Update workshop participants count with transaction to prevent over-booking
+    const workshopRef = admin
+      .firestore()
+      .collection('workshops')
+      .doc(workshopId);
+    const maxParticipants = registrationData.maxParticipants || 100;
+
+    await admin.firestore().runTransaction(async (transaction) => {
+      const workshopDoc = await transaction.get(workshopRef);
+      const currentParticipants = workshopDoc.data().currentParticipants || 0;
+
+      if (currentParticipants < maxParticipants) {
+        transaction.update(workshopRef, {
+          currentParticipants: currentParticipants + 1,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    });
+
+    // Send confirmation email
+    const userSnapshot = await admin
+      .firestore()
+      .collection('users')
+      .doc(userId)
+      .get();
+    const userData = userSnapshot.data();
+    const userEmail = registrationData.email || userData.email;
+
+    // Get workshop details
+    const workshopDoc = await admin
+      .firestore()
+      .collection('workshops')
+      .doc(workshopId)
+      .get();
+    const workshopData = workshopDoc.data();
+
+    // Send confirmation email
+    if (transporter && userEmail) {
+      try {
+        await transporter.sendMail({
+          from: gmailEmail,
+          to: userEmail,
+          subject: `✅ Workshop Registration Confirmed - ${workshopData.title}`,
+          html: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #006876; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+                .success-box { background-color: #90D26D; color: white; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: center; font-size: 18px; font-weight: bold; }
+                .details { background-color: white; padding: 20px; border-left: 4px solid #FF6B35; margin: 20px 0; }
+                .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+                .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>Sehat Makaan</h1>
+                  <p>Workshop Registration Confirmed</p>
+                </div>
+                <div class="content">
+                  <div class="success-box">
+                    ✅ Payment Successful - Workshop Registered!
+                  </div>
+                  <p>Dear ${registrationData.firstName},</p>
+                  <p>Your payment has been received and your workshop registration is now confirmed.</p>
+                  <div class="details">
+                    <h3>Registration Details</h3>
+                    <div class="detail-row">
+                      <span>Registration Number:</span>
+                      <strong>${registrationNumber}</strong>
+                    </div>
+                    <div class="detail-row">
+                      <span>Workshop:</span>
+                      <strong>${workshopData.title}</strong>
+                    </div>
+                    <div class="detail-row">
+                      <span>Date:</span>
+                      <strong>${new Date(workshopData.date).toLocaleDateString()}</strong>
+                    </div>
+                    <div class="detail-row">
+                      <span>Time:</span>
+                      <strong>${workshopData.time}</strong>
+                    </div>
+                    <div class="detail-row">
+                      <span>Amount Paid:</span>
+                      <strong>PKR ${amount_gross}</strong>
+                    </div>
+                  </div>
+                  <p>Please keep your registration number for reference. You should receive further details about the workshop soon.</p>
+                  <p>If you have any questions, please contact support at sehatmakaan@gmail.com</p>
+                </div>
+                <div class="footer">
+                  <p>&copy; 2024 Sehat Makaan. All rights reserved.</p>
+                </div>
+              </div>
+            </body>
+            </html>
+          `,
+        });
+        console.log(`✅ Confirmation email sent to: ${userEmail}`);
+      } catch (error) {
+        console.error('❌ Error sending confirmation email:', error.message);
+      }
+    }
+
+    console.log(
+      `✅ Workshop registration confirmed. Registration: ${registrationId}, Payment: ${pf_payment_id}`
+    );
+    return res.status(200).json({
+      success: true,
+      message: 'Payment processed successfully',
+      registrationNumber: registrationNumber,
+    });
+  } catch (error) {
+    console.error('❌ Error handling PayFast webhook:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 console.log('🚀 Sehat Makaan Cloud Functions initialized');

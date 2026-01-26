@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sehat_makaan_flutter/core/constants/types.dart';
 import 'package:sehat_makaan_flutter/core/constants/constants.dart';
 
@@ -22,6 +23,7 @@ class ShoppingCartWidget extends StatefulWidget {
 
 class _ShoppingCartWidgetState extends State<ShoppingCartWidget> {
   final List<CartItem> _cartItems = [];
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   @override
   void initState() {
@@ -29,13 +31,51 @@ class _ShoppingCartWidgetState extends State<ShoppingCartWidget> {
     _loadCart();
   }
 
+  /// 🛒 Load cart from Firestore
   Future<void> _loadCart() async {
     try {
-      // In real implementation, load from user's cart in Firestore
-      // For now, using local state
-      // TODO: Implement persistent cart in Firestore
+      final userId = widget.userSession['id']?.toString();
+      if (userId == null || userId.isEmpty) {
+        debugPrint('⚠️ No user ID found, cannot load cart');
+        return;
+      }
+
+      final doc = await _firestore.collection('cart_items').doc(userId).get();
+
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        final items = (data['items'] as List?);
+
+        if (items != null) {
+          setState(() {
+            _cartItems.clear();
+            _cartItems.addAll(
+              items.map(
+                (item) => CartItem.fromJson(item as Map<String, dynamic>),
+              ),
+            );
+          });
+          debugPrint('✅ Loaded ${_cartItems.length} items from cart');
+        }
+      }
     } catch (e) {
-      debugPrint('Error loading cart: $e');
+      debugPrint('❌ Error loading cart: $e');
+    }
+  }
+
+  /// 💾 Save cart to Firestore
+  Future<void> _saveCart() async {
+    try {
+      final userId = widget.userSession['id']?.toString();
+      if (userId == null || userId.isEmpty) return;
+
+      await _firestore.collection('cart_items').doc(userId).set({
+        'items': _cartItems.map((item) => item.toJson()).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('✅ Cart saved to Firestore');
+    } catch (e) {
+      debugPrint('❌ Error saving cart: $e');
     }
   }
 
@@ -51,6 +91,7 @@ class _ShoppingCartWidgetState extends State<ShoppingCartWidget> {
         }
       }
     });
+    _saveCart(); // 💾 Persist to Firestore
     widget.onCartUpdated?.call();
   }
 
@@ -58,6 +99,7 @@ class _ShoppingCartWidgetState extends State<ShoppingCartWidget> {
     setState(() {
       _cartItems.removeWhere((i) => i.id == itemId);
     });
+    _saveCart(); // 💾 Persist to Firestore
     widget.onCartUpdated?.call();
   }
 
@@ -65,18 +107,19 @@ class _ShoppingCartWidgetState extends State<ShoppingCartWidget> {
     setState(() {
       _cartItems.clear();
     });
+    _saveCart(); // 💾 Persist to Firestore
     widget.onCartUpdated?.call();
   }
 
   double get _totalAmount {
     return _cartItems.fold(
       0.0,
-      (sum, item) => sum + (item.price * item.quantity),
+      (total, item) => total + (item.price * item.quantity),
     );
   }
 
   int get _totalItems {
-    return _cartItems.fold(0, (sum, item) => sum + item.quantity);
+    return _cartItems.fold(0, (total, item) => total + item.quantity);
   }
 
   @override
