@@ -45,8 +45,11 @@ class UserStatusService {
 
             final status = data['status'] as String?;
             final isActive = data['isActive'] as bool? ?? false;
+            final userType = data['userType'] as String? ?? 'doctor';
 
-            debugPrint('📊 User Status Update: $status, isActive: $isActive');
+            debugPrint(
+              '📊 User Status Update: $status, isActive: $isActive, userType: $userType',
+            );
 
             // Check if account is suspended
             if (status == 'suspended') {
@@ -77,8 +80,8 @@ class UserStatusService {
               return;
             }
 
-            // Check if approval was revoked
-            if (status != 'approved') {
+            // ✅ IMPORTANT: Admins don't need approval, only regular users do
+            if (userType != 'admin' && status != 'approved') {
               debugPrint('⚠️ APPROVAL REVOKED - Forcing logout');
               await _handleAccountIssue(
                 context,

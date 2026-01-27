@@ -277,14 +277,41 @@ class _BookingsTabState extends State<BookingsTab> {
                     ],
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _statusFilteredBookings.length,
-                  itemBuilder: (context, index) {
-                    final booking = _statusFilteredBookings[index];
-                    return BookingCardWidget(
-                      booking: booking,
-                      onCancel: () => widget.onCancel(booking),
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final spacing = ResponsiveHelper.getSpacing(context);
+                    final horizontalPadding = ResponsiveHelper.isMobile(context)
+                        ? 12.0
+                        : 16.0;
+                    final availableWidth =
+                        constraints.maxWidth - (horizontalPadding * 2);
+                    final columnCount = ResponsiveHelper.getColumnCountForWidth(
+                      availableWidth,
+                      minTileWidth: 380,
+                      maxColumns: 4,
+                    );
+                    final itemWidth =
+                        (availableWidth - (spacing * (columnCount - 1))) /
+                        columnCount;
+
+                    return SingleChildScrollView(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                        vertical: spacing,
+                      ),
+                      child: Wrap(
+                        spacing: spacing,
+                        runSpacing: spacing,
+                        children: _statusFilteredBookings.map((booking) {
+                          return SizedBox(
+                            width: itemWidth,
+                            child: BookingCardWidget(
+                              booking: booking,
+                              onCancel: () => widget.onCancel(booking),
+                            ),
+                          );
+                        }).toList(),
+                      ),
                     );
                   },
                 ),

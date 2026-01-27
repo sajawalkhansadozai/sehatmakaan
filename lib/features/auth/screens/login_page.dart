@@ -125,10 +125,12 @@ class _LoginPageState extends State<LoginPage> {
       final userData = usersQuery.docs.first.data();
       final status = userData['status'] as String?;
       final isActive = userData['isActive'] as bool? ?? false;
+      final userType = userData['userType'] as String? ?? 'doctor';
 
       debugPrint('🔐 Email Verification Check - Email: $email');
       debugPrint('🔐 Email Verification Check - Status: $status');
       debugPrint('🔐 Email Verification Check - isActive: $isActive');
+      debugPrint('🔐 Email Verification Check - UserType: $userType');
 
       // Check if account is suspended
       if (status == 'suspended') {
@@ -170,7 +172,8 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      if (status != 'approved') {
+      // ✅ IMPORTANT: Admins don't need approval, only regular users do
+      if (userType != 'admin' && status != 'approved') {
         await _auth.signOut(); // Sign out before showing error
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -308,10 +311,12 @@ class _LoginPageState extends State<LoginPage> {
       // Check account status
       final status = userData['status'] as String?;
       final isActive = userData['isActive'] as bool? ?? false;
+      final userType = userData['userType'] as String? ?? 'doctor';
 
       debugPrint('🔐 Login Check - Email: $email');
       debugPrint('🔐 Login Check - Status: $status');
       debugPrint('🔐 Login Check - isActive: $isActive');
+      debugPrint('🔐 Login Check - UserType: $userType');
 
       if (status == 'suspended') {
         debugPrint(
@@ -340,7 +345,8 @@ class _LoginPageState extends State<LoginPage> {
         throw Exception('Account Deactivated - Contact Admin');
       }
 
-      if (status != 'approved') {
+      // ✅ IMPORTANT: Admins don't need approval, only regular users do
+      if (userType != 'admin' && status != 'approved') {
         await _auth.signOut();
         throw Exception('Account Pending Approval');
       }
@@ -382,11 +388,20 @@ class _LoginPageState extends State<LoginPage> {
         await UserStatusService.startMonitoring(context, user.uid);
         debugPrint('✅ User status monitoring started');
 
+        // Route to appropriate dashboard based on user type
+        final userTypeValue =
+            userSessionData['userType'] as String? ?? 'doctor';
+        final routeName = userTypeValue == 'admin'
+            ? '/admin-dashboard'
+            : '/dashboard';
+
         Navigator.pushNamedAndRemoveUntil(
           context,
-          '/dashboard',
+          routeName,
           (route) => false,
-          arguments: userSessionData,
+          arguments: userTypeValue == 'admin'
+              ? {'adminSession': userSessionData}
+              : userSessionData,
         );
       }
     } catch (e) {

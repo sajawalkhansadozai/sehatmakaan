@@ -97,6 +97,16 @@ class ResponsiveHelper {
     }
   }
 
+  /// Calculate column count based on available width and desired minimum tile width
+  static int getColumnCountForWidth(
+    double maxWidth, {
+    double minTileWidth = 360,
+    int maxColumns = 4,
+  }) {
+    final columns = (maxWidth / minTileWidth).floor();
+    return columns.clamp(1, maxColumns);
+  }
+
   /// Build responsive layout
   static Widget buildResponsive({
     required BuildContext context,

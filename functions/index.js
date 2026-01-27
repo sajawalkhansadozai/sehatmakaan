@@ -1,6 +1,7 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 admin.initializeApp();
 
@@ -23,6 +24,42 @@ if (gmailEmail && gmailPassword) {
 } else {
   console.warn('⚠️ Gmail credentials not configured. Emails will be logged only.');
   console.warn('Set credentials with: firebase functions:config:set gmail.email="your-email" gmail.password="your-app-password"');
+}
+
+/**
+ * Verify PayFast signature to ensure webhook authenticity
+ * @param {Object} data - Payment data from PayFast
+ * @param {string} passphrase - PayFast passphrase (optional)
+ * @returns {boolean} - True if signature is valid
+ */
+function verifyPayFastSignature(data, passphrase = '') {
+  const signature = data.signature;
+  if (!signature) {
+    console.warn('⚠️ No signature provided in webhook');
+    return false;
+  }
+
+  // Create parameter string (exclude signature field)
+  const paramString = Object.keys(data)
+    .filter(key => key !== 'signature' && data[key] !== '' && data[key] !== null)
+    .sort()
+    .map(key => `${key}=${encodeURIComponent(data[key]).replace(/%20/g, '+')}`)
+    .join('&');
+
+  // Add passphrase if provided
+  const stringToHash = passphrase ? `${paramString}&passphrase=${passphrase}` : paramString;
+
+  // Generate MD5 hash
+  const calculatedSignature = crypto.createHash('md5').update(stringToHash).digest('hex');
+
+  const isValid = calculatedSignature === signature;
+  if (!isValid) {
+    console.error('❌ Signature mismatch!');
+    console.error('Expected:', calculatedSignature);
+    console.error('Received:', signature);
+  }
+
+  return isValid;
 }
 
 /**
@@ -350,7 +387,7 @@ exports.sendTestEmail = functions.https.onCall(async (data, context) => {
  * Verifies payment and updates Firestore
  */
 exports.payfastWebhook = functions.https.onRequest(async (req, res) => {
-  console.log('💰 PayFast webhook received');
+  console.log('💰 PayFast Booking Payment webhook received');
   
   try {
     // Only accept POST requests
@@ -363,9 +400,17 @@ exports.payfastWebhook = functions.https.onRequest(async (req, res) => {
     const paymentData = req.body;
     console.log('Payment data:', JSON.stringify(paymentData, null, 2));
 
+    // ✅ FIX #2: Verify PayFast signature
+    if (!verifyPayFastSignature(paymentData)) {
+      console.error('❌ Invalid signature - potential fraud attempt');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+
     // Extract key payment details
     const {
-      m_payment_id: registrationId,
+      custom_str1: bookingId,
+      custom_str2: paymentRecordId,
       payment_status: paymentStatus,
       amount_gross: amountGross,
       pf_payment_id: pfPaymentId,
@@ -373,95 +418,131 @@ exports.payfastWebhook = functions.https.onRequest(async (req, res) => {
     } = paymentData;
 
     // Validate required fields
-    if (!registrationId || !paymentStatus) {
+    if (!bookingId || !paymentStatus || !paymentRecordId) {
       console.log('❌ Missing required fields');
       res.status(400).send('Missing required fields');
       return;
     }
 
-    // Find payment record
-    const paymentsQuery = await admin.firestore()
-      .collection('workshop_payments')
-      .where('registrationId', '==', registrationId)
-      .limit(1)
-      .get();
+    // Only process successful payments
+    if (paymentStatus !== 'COMPLETE') {
+      console.log(`⚠️ Payment not completed: ${paymentStatus}`);
+      res.status(200).send('OK');
+      return;
+    }
 
-    if (paymentsQuery.empty) {
-      console.log('❌ Payment record not found for registration:', registrationId);
+    console.log(`💳 Processing booking payment: ${pfPaymentId}, Amount: ${amountGross}, Booking: ${bookingId}`);
+
+    // Get payment record with duplicate check
+    const paymentRef = admin.firestore().collection('booking_payments').doc(paymentRecordId);
+    const paymentDoc = await paymentRef.get();
+
+    if (!paymentDoc.exists) {
+      console.error('❌ Payment record not found:', paymentRecordId);
       res.status(404).send('Payment record not found');
       return;
     }
 
-    const paymentDoc = paymentsQuery.docs[0];
-    const paymentId = paymentDoc.id;
+    const paymentInfo = paymentDoc.data();
 
-    // Update payment status based on PayFast response
-    let newStatus = 'pending';
-    if (paymentStatus === 'COMPLETE') {
-      newStatus = 'completed';
-    } else if (paymentStatus === 'FAILED') {
-      newStatus = 'failed';
-    } else if (paymentStatus === 'CANCELLED') {
-      newStatus = 'cancelled';
+    // ✅ FIX #4: Check if already processed (duplicate webhook)
+    if (paymentInfo.status === 'paid') {
+      console.log('⚠️ Duplicate payment webhook - already processed');
+      res.status(200).send('OK');
+      return;
     }
 
-    // Update payment record
-    await admin.firestore().collection('workshop_payments').doc(paymentId).update({
-      status: newStatus,
-      payfastPaymentId: pfPaymentId,
-      payfastData: paymentData,
-      amountReceived: parseFloat(amountGross),
-      completedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // ✅ FIX #3: Validate amount matches
+    const expectedAmount = paymentInfo.amount;
+    const receivedAmount = parseFloat(amountGross);
+    if (Math.abs(receivedAmount - expectedAmount) > 1) {
+      console.error(`❌ Amount mismatch! Expected: ${expectedAmount}, Received: ${receivedAmount}`);
+      res.status(400).send('Amount mismatch');
+      return;
+    }
 
-    console.log(`✅ Payment ${paymentId} updated to status: ${newStatus}`);
+    // ✅ FIX #1: Update booking document (not workshop_registrations)
+    const bookingRef = admin.firestore().collection('bookings').doc(bookingId);
+    const bookingDoc = await bookingRef.get();
 
-    // If payment completed, update workshop registration
-    if (paymentStatus === 'COMPLETE') {
-      await admin.firestore()
-        .collection('workshop_registrations')
-        .doc(registrationId)
-        .update({
-          paymentStatus: 'paid',
-          paymentCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+    if (!bookingDoc.exists) {
+      console.error('❌ Booking not found:', bookingId);
+      res.status(404).send('Booking not found');
+      return;
+    }
 
-      console.log(`✅ Workshop registration ${registrationId} marked as paid`);
+    // Use transaction for atomic updates
+    await admin.firestore().runTransaction(async (transaction) => {
+      // Double-check payment status hasn't changed (race condition protection)
+      const paymentRefreshDoc = await transaction.get(paymentRef);
+      if (paymentRefreshDoc.data().status === 'paid') {
+        throw new Error('Payment already processed');
+      }
 
-      // Send confirmation email
-      await admin.firestore().collection('email_queue').add({
-        to: paymentDoc.data().userEmail,
-        subject: 'Payment Confirmed - Sehat Makaan Workshop',
-        htmlContent: `
-          <div style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2 style="color: #14B8A6;">Payment Confirmed!</h2>
-            <p>Your payment for <strong>${itemName}</strong> has been successfully processed.</p>
-            <div style="background-color: #f0f9ff; padding: 15px; border-radius: 8px; margin: 20px 0;">
-              <p style="margin: 5px 0;"><strong>Payment Amount:</strong> R ${amountGross}</p>
-              <p style="margin: 5px 0;"><strong>Payment ID:</strong> ${pfPaymentId}</p>
-              <p style="margin: 5px 0;"><strong>Status:</strong> Completed</p>
-            </div>
-            <p>You will receive further details about the workshop via email shortly.</p>
-            <p style="color: #666; margin-top: 30px;">
-              Thank you for choosing Sehat Makaan!
-            </p>
-          </div>
-        `,
-        status: 'pending',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        retryCount: 0,
+      // Update payment record
+      transaction.update(paymentRef, {
+        status: 'paid',
+        payfastPaymentId: pfPaymentId,
+        payfastData: paymentData,
+        amountReceived: receivedAmount,
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      console.log('✅ Payment confirmation email queued');
+      // Update booking
+      transaction.update(bookingRef, {
+        paymentStatus: 'paid',
+        paymentCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    console.log(`✅ Booking ${bookingId} confirmed and payment ${paymentRecordId} marked as paid`);
+
+    // Send confirmation email
+    const userId = paymentInfo.userId;
+    if (userId) {
+      const userDoc = await admin.firestore().collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const user = userDoc.data();
+        await admin.firestore().collection('email_queue').add({
+          to: user.email,
+          subject: 'Booking Payment Confirmed - Sehat Makaan',
+          htmlContent: `
+            <div style="font-family: Arial, sans-serif; padding: 20px;">
+              <h2 style="color: #14B8A6;">Payment Confirmed!</h2>
+              <p>Your booking payment has been successfully processed.</p>
+              <div style="background-color: #f0f9ff; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                <p style="margin: 5px 0;"><strong>Booking ID:</strong> ${bookingId}</p>
+                <p style="margin: 5px 0;"><strong>Amount Paid:</strong> R ${amountGross}</p>
+                <p style="margin: 5px 0;"><strong>Payment ID:</strong> ${pfPaymentId}</p>
+                <p style="margin: 5px 0;"><strong>Status:</strong> Confirmed</p>
+              </div>
+              <p>Your appointment is now confirmed. You will receive further details shortly.</p>
+            </div>
+          `,
+          status: 'pending',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          retryCount: 0,
+        });
+      }
     }
 
-    // Send success response to PayFast
-    res.status(200).send('OK');
+    return res.status(200).json({
+      success: true,
+      message: 'Booking payment processed successfully',
+      bookingId,
+    });
 
   } catch (error) {
-    console.error('❌ Error processing PayFast webhook:', error);
-    res.status(500).send('Internal Server Error');
+    console.error('❌ Error processing PayFast booking webhook:', error);
+    
+    // ✅ FIX #7: Proper error handling with appropriate status codes
+    if (error.message.includes('not found')) {
+      res.status(404).send('Resource not found');
+    } else if (error.message.includes('Already processed')) {
+      res.status(200).send('OK');
+    } else {
+      res.status(500).send('Internal Server Error');
+    }
   }
 });
 
@@ -484,6 +565,13 @@ exports.payfastWorkshopCreationWebhook = functions.https.onRequest(async (req, r
     const paymentData = req.body;
     console.log('Payment data:', JSON.stringify(paymentData, null, 2));
 
+    // ✅ FIX #2: Verify PayFast signature
+    if (!verifyPayFastSignature(paymentData)) {
+      console.error('❌ Invalid signature - potential fraud attempt');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+
     // Extract key payment details
     const {
       custom_str1: workshopId,
@@ -501,16 +589,51 @@ exports.payfastWorkshopCreationWebhook = functions.https.onRequest(async (req, r
       return;
     }
 
+    // Only process successful payments
+    if (paymentStatus !== 'COMPLETE') {
+      console.log(`⚠️ Payment not completed: ${paymentStatus}`);
+      res.status(200).send('OK');
+      return;
+    }
+
     console.log(`Processing payment for workshop: ${workshopId}`);
+
+    // Get workshop document
+    const workshopRef = admin.firestore().collection('workshops').doc(workshopId);
+    const workshopDoc = await workshopRef.get();
+
+    if (!workshopDoc.exists) {
+      console.error('❌ Workshop not found:', workshopId);
+      res.status(404).send('Workshop not found');
+      return;
+    }
+
+    const workshopData = workshopDoc.data();
+
+    // ✅ FIX #4: Check if already processed
+    if (workshopData.isCreationFeePaid === true) {
+      console.log('⚠️ Duplicate payment webhook - already processed');
+      res.status(200).send('OK');
+      return;
+    }
+
+    // ✅ FIX #3: Validate amount (creation fee should be PKR 10,000)
+    const expectedAmount = 10000;
+    const receivedAmount = parseFloat(amountGross);
+    if (Math.abs(receivedAmount - expectedAmount) > 1) {
+      console.error(`❌ Amount mismatch! Expected: ${expectedAmount}, Received: ${receivedAmount}`);
+      res.status(400).send('Amount mismatch');
+      return;
+    }
 
     // Update payment record if exists
     if (paymentRecordId) {
       try {
         await admin.firestore().collection('workshop_creation_payments').doc(paymentRecordId).update({
-          status: paymentStatus === 'COMPLETE' ? 'completed' : 'failed',
+          status: 'paid',
           payfastPaymentId: pfPaymentId,
           payfastData: paymentData,
-          amountReceived: parseFloat(amountGross),
+          amountReceived: receivedAmount,
           completedAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -520,129 +643,118 @@ exports.payfastWorkshopCreationWebhook = functions.https.onRequest(async (req, r
       }
     }
 
-    // If payment completed, activate workshop
-    if (paymentStatus === 'COMPLETE') {
-      // Use transaction to ensure atomic update
-      await admin.firestore().runTransaction(async (transaction) => {
-        const workshopRef = admin.firestore().collection('workshops').doc(workshopId);
-        const workshopDoc = await transaction.get(workshopRef);
-
-        if (!workshopDoc.exists) {
-          throw new Error('Workshop not found');
-        }
-
-        const workshopData = workshopDoc.data();
-        
-        // Atomic update: Mark as paid AND activate workshop
-        transaction.update(workshopRef, {
-          isCreationFeePaid: true,
-          isActive: true,
-          permissionStatus: 'live',
-          activatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        console.log(`✅ Workshop ${workshopId} activated successfully`);
-
-        // Get creator details for notification
-        const creatorId = workshopData.createdBy;
-        if (creatorId) {
-          const creatorDoc = await admin.firestore()
-            .collection('workshop_creators')
-            .where('userId', '==', creatorId)
-            .limit(1)
-            .get();
-
-          if (!creatorDoc.empty) {
-            const creatorData = creatorDoc.docs[0].data();
-
-            // Send in-app notification
-            await admin.firestore().collection('notifications').add({
-              userId: creatorId,
-              type: 'workshop_live',
-              title: '🎉 Workshop is Now LIVE!',
-              message: `Your workshop "${workshopData.title}" is now active and visible to users. Start managing registrations!`,
-              isRead: false,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-
-            // Send email notification
-            await admin.firestore().collection('email_queue').add({
-              to: creatorData.email,
-              subject: `🎉 Workshop Live - ${workshopData.title}`,
-              htmlContent: `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                  <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background-color: #006876; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-                    .content { background-color: #f9f9f9; padding: 30px; }
-                    .success-box { background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 8px; margin: 20px 0; }
-                    .workshop-details { background-color: white; padding: 15px; border-radius: 8px; margin: 20px 0; }
-                    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-                  </style>
-                </head>
-                <body>
-                  <div class="container">
-                    <div class="header">
-                      <h1>🎉 Workshop is Now LIVE!</h1>
-                    </div>
-                    <div class="content">
-                      <div class="success-box">
-                        <h3 style="color: #155724; margin-top: 0;">Payment Successful!</h3>
-                        <p style="margin: 5px 0;">Your creation fee payment has been processed successfully.</p>
-                      </div>
-                      
-                      <h2>Workshop Details</h2>
-                      <div class="workshop-details">
-                        <p><strong>Title:</strong> ${workshopData.title}</p>
-                        <p><strong>Status:</strong> <span style="color: #28a745;">● LIVE</span></p>
-                        <p><strong>Payment ID:</strong> ${pfPaymentId}</p>
-                        <p><strong>Amount Paid:</strong> PKR ${amountGross}</p>
-                      </div>
-
-                      <h3>What's Next?</h3>
-                      <ul>
-                        <li>✅ Your workshop is now visible to all users</li>
-                        <li>✅ Users can register and make payments</li>
-                        <li>✅ You can manage registrations from your dashboard</li>
-                        <li>✅ Monitor workshop performance and revenue</li>
-                      </ul>
-
-                      <p style="margin-top: 30px;">
-                        <a href="https://sehatmakaan.com/dashboard" style="background-color: #006876; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
-                          Go to Dashboard
-                        </a>
-                      </p>
-                    </div>
-                    <div class="footer">
-                      <p><strong>Sehat Makaan Team</strong></p>
-                      <p>This is an automated message. Please do not reply.</p>
-                    </div>
-                  </div>
-                </body>
-                </html>
-              `,
-              status: 'pending',
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-              retryCount: 0,
-            });
-
-            console.log('✅ Notifications sent to creator');
-          }
-        }
-      });
-    } else if (paymentStatus === 'FAILED' || paymentStatus === 'CANCELLED') {
-      console.log(`⚠️ Payment ${paymentStatus.toLowerCase()} for workshop ${workshopId}`);
+    // Use transaction to ensure atomic update
+    await admin.firestore().runTransaction(async (transaction) => {
+      const workshopRefresh = await transaction.get(workshopRef);
       
-      // Update payment record status only
-      if (paymentRecordId) {
-        await admin.firestore().collection('workshop_creation_payments').doc(paymentRecordId).update({
-          status: paymentStatus.toLowerCase(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      if (!workshopRefresh.exists) {
+        throw new Error('Workshop not found');
+      }
+
+      // Double-check it hasn't been paid already (race condition protection)
+      if (workshopRefresh.data().isCreationFeePaid === true) {
+        throw new Error('Already processed');
+      }
+
+      // Mark as paid AND activate workshop
+      transaction.update(workshopRef, {
+        isCreationFeePaid: true,
+        isActive: true,
+        permissionStatus: 'live',
+        activatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    console.log(`✅ Workshop ${workshopId} activated successfully`);
+
+    // Get creator details for notification
+    const creatorId = workshopData.createdBy;
+    if (creatorId && transporter) {
+      const creatorDoc = await admin.firestore()
+        .collection('workshop_creators')
+        .where('userId', '==', creatorId)
+        .limit(1)
+        .get();
+
+      if (!creatorDoc.empty) {
+        const creatorData = creatorDoc.docs[0].data();
+
+        // Send in-app notification
+        await admin.firestore().collection('notifications').add({
+          userId: creatorId,
+          type: 'workshop_live',
+          title: '🎉 Workshop is Now LIVE!',
+          message: `Your workshop "${workshopData.title}" is now active and visible to users. Start managing registrations!`,
+          isRead: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        // Send email notification
+        await admin.firestore().collection('email_queue').add({
+          to: creatorData.email,
+          subject: `🎉 Workshop Live - ${workshopData.title}`,
+          htmlContent: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #006876; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                .content { background-color: #f9f9f9; padding: 30px; }
+                .success-box { background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 8px; margin: 20px 0; }
+                .workshop-details { background-color: white; padding: 15px; border-radius: 8px; margin: 20px 0; }
+                .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>🎉 Workshop is Now LIVE!</h1>
+                </div>
+                <div class="content">
+                  <div class="success-box">
+                    <h3 style="color: #155724; margin-top: 0;">Payment Successful!</h3>
+                    <p style="margin: 5px 0;">Your creation fee payment has been processed successfully.</p>
+                  </div>
+                  
+                  <h2>Workshop Details</h2>
+                  <div class="workshop-details">
+                    <p><strong>Title:</strong> ${workshopData.title}</p>
+                    <p><strong>Status:</strong> <span style="color: #28a745;">● LIVE</span></p>
+                    <p><strong>Payment ID:</strong> ${pfPaymentId}</p>
+                    <p><strong>Amount Paid:</strong> PKR ${amountGross}</p>
+                  </div>
+
+                  <h3>What's Next?</h3>
+                  <ul>
+                    <li>✅ Your workshop is now visible to all users</li>
+                    <li>✅ Users can register and make payments</li>
+                    <li>✅ You can manage registrations from your dashboard</li>
+                    <li>✅ Monitor workshop performance and revenue</li>
+                  </ul>
+
+                  <p style="margin-top: 30px;">
+                    <a href="https://sehatmakaan.com/dashboard" style="background-color: #006876; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                      Go to Dashboard
+                    </a>
+                  </p>
+                </div>
+                <div class="footer">
+                  <p><strong>Sehat Makaan Team</strong></p>
+                  <p>This is an automated message. Please do not reply.</p>
+                </div>
+              </div>
+            </body>
+            </html>
+          `,
+          status: 'pending',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          retryCount: 0,
+        });
+
+        console.log('✅ Notifications sent to creator');
       }
     }
 
@@ -651,7 +763,15 @@ exports.payfastWorkshopCreationWebhook = functions.https.onRequest(async (req, r
 
   } catch (error) {
     console.error('❌ Error processing workshop creation fee webhook:', error);
-    res.status(500).send('Internal Server Error');
+    
+    // ✅ FIX #7: Proper error handling
+    if (error.message.includes('not found')) {
+      res.status(404).send('Resource not found');
+    } else if (error.message.includes('Already processed')) {
+      res.status(200).send('OK');
+    } else {
+      res.status(500).send('Internal Server Error');
+    }
   }
 });
 
@@ -3333,134 +3453,191 @@ exports.onWorkshopApproval = functions.firestore
 // PAYFAST WEBHOOK HANDLER - Handles payment confirmations
 // ============================================================================
 exports.handlePayFastWebhook = functions.https.onRequest(async (req, res) => {
+  console.log('🎯 PayFast Workshop Registration webhook received');
+  
   try {
-    // Log webhook payload
-    console.log('🔔 PayFast webhook received:', req.body);
-
-    // Verify webhook is from PayFast
+    // Only accept POST requests
     if (req.method !== 'POST') {
-      return res.status(400).json({ error: 'Only POST requests allowed' });
+      console.log('⚠️ Invalid method:', req.method);
+      res.status(405).send('Method Not Allowed');
+      return;
+    }
+
+    const paymentData = req.body;
+    console.log('Payment data:', JSON.stringify(paymentData, null, 2));
+
+    // ✅ FIX #2: Verify PayFast signature
+    if (!verifyPayFastSignature(paymentData)) {
+      console.error('❌ Invalid signature - potential fraud attempt');
+      res.status(401).send('Invalid signature');
+      return;
     }
 
     const {
-      m_payment_id,
-      pf_payment_id,
-      payment_status,
-      amount_gross,
-      custom_str1, // registrationId
-      custom_str2, // paymentId
-      custom_str3, // type (workshop)
-    } = req.body;
+      custom_str1: registrationId,
+      custom_str2: paymentId,
+      payment_status: paymentStatus,
+      amount_gross: amountGross,
+      pf_payment_id: pfPaymentId,
+    } = paymentData;
 
     // Only process successful payments
-    if (payment_status !== 'COMPLETE') {
-      console.log('⏭️ Skipping non-complete payment status:', payment_status);
-      return res.status(200).json({ message: 'Payment not complete' });
+    if (paymentStatus !== 'COMPLETE') {
+      console.log(`⚠️ Payment not completed: ${paymentStatus}`);
+      res.status(200).send('OK');
+      return;
     }
 
-    if (custom_str3 !== 'workshop') {
-      console.log('⏭️ Skipping non-workshop payment');
-      return res.status(200).json({ message: 'Not a workshop payment' });
+    if (!registrationId || !paymentId) {
+      console.log('❌ Missing required fields');
+      res.status(400).send('Missing required fields');
+      return;
     }
-
-    const registrationId = custom_str1;
-    const paymentId = custom_str2;
 
     console.log(
-      `💳 Processing payment: ${pf_payment_id}, Amount: ${amount_gross}, Registration: ${registrationId}`
+      `💳 Processing workshop registration payment: ${pfPaymentId}, Amount: ${amountGross}, Registration: ${registrationId}`
     );
 
     // Get workshop registration details
-    const registrationDoc = await admin
+    const registrationRef = admin
       .firestore()
       .collection('workshop_registrations')
-      .doc(registrationId)
-      .get();
+      .doc(registrationId);
+    
+    const registrationDoc = await registrationRef.get();
 
     if (!registrationDoc.exists) {
       console.error(`❌ Registration not found: ${registrationId}`);
-      return res.status(404).json({ error: 'Registration not found' });
+      res.status(404).send('Registration not found');
+      return;
     }
 
     const registrationData = registrationDoc.data();
     const workshopId = registrationData.workshopId;
     const userId = registrationData.userId;
 
-    // Update payment record
-    await admin
-      .firestore()
-      .collection('workshop_payments')
-      .doc(paymentId)
-      .update({
-        status: 'paid',
-        paymentId: pf_payment_id,
-        amount: amount_gross,
-        paidAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+    // Get payment record
+    const paymentRef = admin.firestore().collection('workshop_payments').doc(paymentId);
+    const paymentDocCheck = await paymentRef.get();
+
+    if (!paymentDocCheck.exists) {
+      console.error(`❌ Payment record not found: ${paymentId}`);
+      res.status(404).send('Payment record not found');
+      return;
+    }
+
+    const paymentInfo = paymentDocCheck.data();
+
+    // ✅ FIX #4: Check if already processed (duplicate webhook)
+    if (paymentInfo.status === 'paid') {
+      console.log('⚠️ Duplicate payment webhook - already processed');
+      res.status(200).send('OK');
+      return;
+    }
+
+    // ✅ FIX #3: Validate amount matches
+    const expectedAmount = paymentInfo.amount;
+    const receivedAmount = parseFloat(amountGross);
+    if (Math.abs(receivedAmount - expectedAmount) > 1) {
+      console.error(`❌ Amount mismatch! Expected: ${expectedAmount}, Received: ${receivedAmount}`);
+      res.status(400).send('Amount mismatch');
+      return;
+    }
 
     // Generate registration number
     const year = new Date().getFullYear();
     const timestamp = Date.now().toString().substring(8);
     const registrationNumber = `WS-${year}-${timestamp}`;
 
-    // Update registration status to confirmed
-    await admin
-      .firestore()
-      .collection('workshop_registrations')
-      .doc(registrationId)
-      .update({
+    // Use transaction for atomic updates
+    await admin.firestore().runTransaction(async (transaction) => {
+      // Double-check payment status hasn't changed (race condition protection)
+      const paymentRefresh = await transaction.get(paymentRef);
+      if (paymentRefresh.data().status === 'paid') {
+        throw new Error('Already processed');
+      }
+
+      // Update payment record with amount_gross for revenue calculation
+      transaction.update(paymentRef, {
+        status: 'paid',
+        paymentId: pfPaymentId,
+        amount_gross: receivedAmount,
+        amountReceived: receivedAmount,
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Update registration status to confirmed
+      transaction.update(registrationRef, {
         status: 'confirmed',
         paymentStatus: 'paid',
         registrationNumber: registrationNumber,
-        paymentId: pf_payment_id,
+        paymentId: pfPaymentId,
         confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-    // Update workshop participants count with transaction to prevent over-booking
-    const workshopRef = admin
-      .firestore()
-      .collection('workshops')
-      .doc(workshopId);
-    const maxParticipants = registrationData.maxParticipants || 100;
-
-    await admin.firestore().runTransaction(async (transaction) => {
+      // Update workshop participants count and initialize revenue tracking
+      const workshopRef = admin.firestore().collection('workshops').doc(workshopId);
       const workshopDoc = await transaction.get(workshopRef);
-      const currentParticipants = workshopDoc.data().currentParticipants || 0;
+      
+      if (workshopDoc.exists) {
+        const currentParticipants = workshopDoc.data().currentParticipants || 0;
+        const maxParticipants = workshopDoc.data().maxParticipants || 100;
 
-      if (currentParticipants < maxParticipants) {
-        transaction.update(workshopRef, {
-          currentParticipants: currentParticipants + 1,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        if (currentParticipants < maxParticipants) {
+          const updateData = {
+            currentParticipants: currentParticipants + 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+
+          // Initialize revenue tracking fields on first payment
+          if (!workshopDoc.data().revenueReleased) {
+            updateData.revenueReleased = false;
+            updateData.paymentHold = false;
+            
+            // Ensure creator info exists for revenue system
+            if (!workshopDoc.data().creatorEmail || !workshopDoc.data().creatorName) {
+              const creatorId = workshopDoc.data().createdBy || workshopDoc.data().creatorId;
+              if (creatorId) {
+                try {
+                  const creatorSnapshot = await admin.firestore()
+                    .collection('workshop_creators')
+                    .where('userId', '==', creatorId)
+                    .limit(1)
+                    .get();
+                  
+                  if (!creatorSnapshot.empty) {
+                    const creatorData = creatorSnapshot.docs[0].data();
+                    if (!workshopDoc.data().creatorEmail) updateData.creatorEmail = creatorData.email;
+                    if (!workshopDoc.data().creatorName) updateData.creatorName = creatorData.name || creatorData.firstName + ' ' + (creatorData.lastName || '');
+                  }
+                } catch (err) {
+                  console.warn('Could not fetch creator info:', err.message);
+                }
+              }
+            }
+          }
+
+          transaction.update(workshopRef, updateData);
+        }
       }
     });
 
-    // Send confirmation email
-    const userSnapshot = await admin
-      .firestore()
-      .collection('users')
-      .doc(userId)
-      .get();
-    const userData = userSnapshot.data();
-    const userEmail = registrationData.email || userData.email;
-
-    // Get workshop details
-    const workshopDoc = await admin
-      .firestore()
-      .collection('workshops')
-      .doc(workshopId)
-      .get();
-    const workshopData = workshopDoc.data();
+    console.log(`✅ Workshop registration confirmed. Registration: ${registrationId}, Payment: ${pfPaymentId}`);
 
     // Send confirmation email
-    if (transporter && userEmail) {
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userEmail = registrationData.email || (userDoc.exists ? userDoc.data().email : null);
+
+    if (userEmail && transporter) {
       try {
-        await transporter.sendMail({
-          from: gmailEmail,
+        const workshopDoc = await admin.firestore().collection('workshops').doc(workshopId).get();
+        const workshopData = workshopDoc.exists ? workshopDoc.data() : {};
+
+        await admin.firestore().collection('email_queue').add({
           to: userEmail,
-          subject: `✅ Workshop Registration Confirmed - ${workshopData.title}`,
-          html: `
+          subject: `✅ Workshop Registration Confirmed - ${workshopData.title || 'Workshop'}`,
+          htmlContent: `
             <!DOCTYPE html>
             <html>
             <head>
@@ -3485,7 +3662,7 @@ exports.handlePayFastWebhook = functions.https.onRequest(async (req, res) => {
                   <div class="success-box">
                     ✅ Payment Successful - Workshop Registered!
                   </div>
-                  <p>Dear ${registrationData.firstName},</p>
+                  <p>Dear ${registrationData.firstName || 'Participant'},</p>
                   <p>Your payment has been received and your workshop registration is now confirmed.</p>
                   <div class="details">
                     <h3>Registration Details</h3>
@@ -3495,19 +3672,15 @@ exports.handlePayFastWebhook = functions.https.onRequest(async (req, res) => {
                     </div>
                     <div class="detail-row">
                       <span>Workshop:</span>
-                      <strong>${workshopData.title}</strong>
+                      <strong>${workshopData.title || 'N/A'}</strong>
                     </div>
                     <div class="detail-row">
                       <span>Date:</span>
-                      <strong>${new Date(workshopData.date).toLocaleDateString()}</strong>
-                    </div>
-                    <div class="detail-row">
-                      <span>Time:</span>
-                      <strong>${workshopData.time}</strong>
+                      <strong>${workshopData.date ? new Date(workshopData.date).toLocaleDateString() : 'N/A'}</strong>
                     </div>
                     <div class="detail-row">
                       <span>Amount Paid:</span>
-                      <strong>PKR ${amount_gross}</strong>
+                      <strong>PKR ${amountGross}</strong>
                     </div>
                   </div>
                   <p>Please keep your registration number for reference. You should receive further details about the workshop soon.</p>
@@ -3520,27 +3693,637 @@ exports.handlePayFastWebhook = functions.https.onRequest(async (req, res) => {
             </body>
             </html>
           `,
+          status: 'pending',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          retryCount: 0,
         });
-        console.log(`✅ Confirmation email sent to: ${userEmail}`);
+        console.log(`✅ Confirmation email queued for: ${userEmail}`);
       } catch (error) {
-        console.error('❌ Error sending confirmation email:', error.message);
+        console.error('❌ Error queuing confirmation email:', error.message);
       }
     }
 
-    console.log(
-      `✅ Workshop registration confirmed. Registration: ${registrationId}, Payment: ${pf_payment_id}`
-    );
     return res.status(200).json({
       success: true,
       message: 'Payment processed successfully',
       registrationNumber: registrationNumber,
     });
+
   } catch (error) {
     console.error('❌ Error handling PayFast webhook:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    
+    // ✅ FIX #7: Proper error handling
+    if (error.message.includes('not found')) {
+      res.status(404).send('Resource not found');
+    } else if (error.message.includes('Already processed')) {
+      res.status(200).send('OK');
+    } else {
+      res.status(500).send('Internal Server Error');
+    }
+  }
+});
+
+// ========================================
+// WORKSHOP REVENUE RELEASE SYSTEM
+// ========================================
+
+/**
+ * Calculate PayFast transaction fees
+ * PayFast charges: 2.9% + PKR 3 per transaction
+ * @param {number} amount - Transaction amount
+ * @returns {number} - Fee amount
+ */
+function calculatePayFastFee(amount) {
+  const percentageFee = amount * 0.029; // 2.9%
+  const fixedFee = 3; // PKR 3
+  return Math.round((percentageFee + fixedFee) * 100) / 100; // Round to 2 decimals
+}
+
+/**
+ * Scheduled function to auto-release workshop revenues
+ * Runs every hour to check workshops that ended 1 hour ago
+ */
+exports.autoReleaseWorkshopRevenue = functions.pubsub
+  .schedule('every 60 minutes')
+  .timeZone('Asia/Karachi')
+  .onRun(async (context) => {
+    console.log('🔄 Starting auto-release revenue check...');
+
+    try {
+      const now = admin.firestore.Timestamp.now();
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+
+      // Find workshops that:
+      // 1. Ended at least 1 hour ago
+      // 2. Have not had revenue released yet
+      // 3. Are not on hold by admin
+      // 4. Have participants (revenue > 0)
+      const workshopsSnapshot = await admin.firestore()
+        .collection('workshops')
+        .where('endDateTime', '<=', oneHourAgo)
+        .where('revenueReleased', '==', false)
+        .where('paymentHold', '==', false)
+        .get();
+
+      console.log(`📊 Found ${workshopsSnapshot.size} workshops ready for revenue release`);
+
+      const releasePromises = workshopsSnapshot.docs.map(async (workshopDoc) => {
+        const workshopId = workshopDoc.id;
+        const workshopData = workshopDoc.data();
+
+        try {
+          // Get all successful payments for this workshop
+          const paymentsSnapshot = await admin.firestore()
+            .collection('workshop_payments')
+            .where('workshopId', '==', workshopId)
+            .where('status', '==', 'paid')
+            .get();
+
+          if (paymentsSnapshot.empty) {
+            console.log(`ℹ️ Workshop ${workshopId} has no payments, skipping`);
+            return null;
+          }
+
+          // Calculate total revenue and fees
+          let totalRevenue = 0;
+          let totalFees = 0;
+          const transactionCount = paymentsSnapshot.size;
+
+          paymentsSnapshot.docs.forEach(paymentDoc => {
+            const paymentData = paymentDoc.data();
+            // Use amount_gross if available, otherwise fall back to amount or amountReceived
+            const amount = parseFloat(paymentData.amount_gross || paymentData.amount || paymentData.amountReceived || 0);
+            totalRevenue += amount;
+            totalFees += calculatePayFastFee(amount);
+          });
+
+          const netRevenue = totalRevenue - totalFees;
+
+          console.log(`💰 Workshop ${workshopId}: Total=${totalRevenue}, Fees=${totalFees}, Net=${netRevenue}`);
+
+          // Create payout record
+          const payoutRef = admin.firestore().collection('workshop_payouts').doc();
+          const payoutData = {
+            payoutId: payoutRef.id,
+            workshopId: workshopId,
+            creatorId: workshopData.creatorId,
+            creatorEmail: workshopData.creatorEmail || '',
+            workshopTitle: workshopData.title || 'Unknown Workshop',
+            totalRevenue: totalRevenue,
+            totalTransactions: transactionCount,
+            totalFees: totalFees,
+            netAmount: netRevenue,
+            status: 'released',
+            releaseType: 'automatic',
+            releasedAt: admin.firestore.FieldValue.serverTimestamp(),
+            releasedBy: 'system',
+            notes: `Auto-released 1 hour after workshop end`,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+
+          await payoutRef.set(payoutData);
+
+          // Update workshop document
+          await workshopDoc.ref.update({
+            revenueReleased: true,
+            revenueReleasedAt: admin.firestore.FieldValue.serverTimestamp(),
+            totalRevenue: totalRevenue,
+            totalFees: totalFees,
+            netRevenue: netRevenue,
+            payoutId: payoutRef.id,
+          });
+
+          // Send email to creator
+          if (workshopData.creatorEmail && transporter) {
+            await admin.firestore().collection('email_queue').add({
+              to: workshopData.creatorEmail,
+              subject: `💰 Revenue Released - ${workshopData.title}`,
+              htmlContent: generateRevenueReleaseEmail({
+                creatorName: workshopData.creatorName || 'Workshop Creator',
+                workshopTitle: workshopData.title,
+                totalRevenue: totalRevenue,
+                totalFees: totalFees,
+                netAmount: netRevenue,
+                transactionCount: transactionCount,
+                payoutId: payoutRef.id,
+              }),
+              status: 'pending',
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              retryCount: 0,
+            });
+          }
+
+          // Send email to admin
+          const adminEmail = 'sehatmakaan@gmail.com';
+          if (transporter) {
+            await admin.firestore().collection('email_queue').add({
+              to: adminEmail,
+              subject: `🔔 Revenue Released - ${workshopData.title}`,
+              htmlContent: generateAdminRevenueNotification({
+                workshopTitle: workshopData.title,
+                creatorName: workshopData.creatorName || 'Unknown',
+                creatorEmail: workshopData.creatorEmail || 'N/A',
+                totalRevenue: totalRevenue,
+                totalFees: totalFees,
+                netAmount: netRevenue,
+                transactionCount: transactionCount,
+                payoutId: payoutRef.id,
+                workshopId: workshopId,
+              }),
+              status: 'pending',
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              retryCount: 0,
+            });
+          }
+
+          console.log(`✅ Revenue released for workshop ${workshopId}: PKR ${netRevenue}`);
+          return { workshopId, netRevenue };
+
+        } catch (error) {
+          console.error(`❌ Error releasing revenue for workshop ${workshopId}:`, error);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(releasePromises);
+      const successCount = results.filter(r => r !== null).length;
+
+      console.log(`✅ Auto-release complete: ${successCount}/${workshopsSnapshot.size} workshops processed`);
+      return null;
+
+    } catch (error) {
+      console.error('❌ Error in auto-release function:', error);
+      return null;
+    }
+  });
+
+/**
+ * Generate revenue release email for creator
+ */
+function generateRevenueReleaseEmail(data) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #006876; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+        .success-box { background-color: #90D26D; color: white; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; font-size: 24px; font-weight: bold; }
+        .details { background-color: white; padding: 20px; border-left: 4px solid #FF6B35; margin: 20px 0; }
+        .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .amount-highlight { font-size: 32px; color: #006876; font-weight: bold; text-align: center; margin: 20px 0; }
+        .fee-breakdown { background-color: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>💰 Revenue Released</h1>
+          <p>Sehat Makaan Workshop Payment</p>
+        </div>
+        <div class="content">
+          <div class="success-box">
+            ✅ Revenue Successfully Released!
+          </div>
+          <p>Dear ${data.creatorName},</p>
+          <p>Congratulations! The revenue from your workshop has been automatically released.</p>
+          
+          <div class="details">
+            <h3>Workshop Details</h3>
+            <div class="detail-row">
+              <span>Workshop:</span>
+              <strong>${data.workshopTitle}</strong>
+            </div>
+            <div class="detail-row">
+              <span>Total Participants:</span>
+              <strong>${data.transactionCount}</strong>
+            </div>
+            <div class="detail-row">
+              <span>Payout ID:</span>
+              <strong>${data.payoutId}</strong>
+            </div>
+          </div>
+
+          <div class="fee-breakdown">
+            <h3>💵 Payment Breakdown</h3>
+            <div class="detail-row">
+              <span>Total Revenue Collected:</span>
+              <strong>PKR ${data.totalRevenue.toFixed(2)}</strong>
+            </div>
+            <div class="detail-row">
+              <span>PayFast Transaction Fees (2.9% + PKR 3 per transaction):</span>
+              <strong>- PKR ${data.totalFees.toFixed(2)}</strong>
+            </div>
+            <hr style="margin: 15px 0;">
+            <div class="detail-row" style="font-size: 18px; border: none;">
+              <span><strong>Net Amount Released to You:</strong></span>
+              <strong style="color: #90D26D;">PKR ${data.netAmount.toFixed(2)}</strong>
+            </div>
+          </div>
+
+          <div class="amount-highlight">
+            PKR ${data.netAmount.toFixed(2)}
+          </div>
+
+          <p><strong>Note:</strong> PayFast transaction fees are automatically deducted as per platform policy. This is the industry standard for payment processing.</p>
+          
+          <p>The net amount will be processed according to your payout settings. Please allow 3-5 business days for bank transfers.</p>
+
+          <p>If you have any questions about this payout, please contact us at sehatmakaan@gmail.com</p>
+
+          <p>Thank you for creating valuable workshops on Sehat Makaan!</p>
+          
+          <p>Best regards,<br>Sehat Makaan Team</p>
+        </div>
+        <div class="footer">
+          <p>&copy; 2026 Sehat Makaan. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+/**
+ * Generate admin notification email
+ */
+function generateAdminRevenueNotification(data) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #FF6B35; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+        .info-box { background-color: #17a2b8; color: white; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: center; font-size: 18px; font-weight: bold; }
+        .details { background-color: white; padding: 20px; border: 2px solid #006876; margin: 20px 0; }
+        .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>🔔 Admin Alert</h1>
+          <p>Workshop Revenue Auto-Released</p>
+        </div>
+        <div class="content">
+          <div class="info-box">
+            ℹ️ Automatic Revenue Release Notification
+          </div>
+          <p>Dear Admin,</p>
+          <p>A workshop revenue has been automatically released to the creator (1 hour after workshop end).</p>
+          
+          <div class="details">
+            <h3>Workshop Information</h3>
+            <div class="detail-row">
+              <span>Workshop ID:</span>
+              <strong>${data.workshopId}</strong>
+            </div>
+            <div class="detail-row">
+              <span>Workshop Title:</span>
+              <strong>${data.workshopTitle}</strong>
+            </div>
+            <div class="detail-row">
+              <span>Creator Name:</span>
+              <strong>${data.creatorName}</strong>
+            </div>
+            <div class="detail-row">
+              <span>Creator Email:</span>
+              <strong>${data.creatorEmail}</strong>
+            </div>
+          </div>
+
+          <div class="details">
+            <h3>Financial Summary</h3>
+            <div class="detail-row">
+              <span>Total Revenue:</span>
+              <strong>PKR ${data.totalRevenue.toFixed(2)}</strong>
+            </div>
+            <div class="detail-row">
+              <span>Total Participants:</span>
+              <strong>${data.transactionCount}</strong>
+            </div>
+            <div class="detail-row">
+              <span>PayFast Fees Deducted:</span>
+              <strong>PKR ${data.totalFees.toFixed(2)}</strong>
+            </div>
+            <div class="detail-row" style="font-size: 16px;">
+              <span><strong>Net Amount Released:</strong></span>
+              <strong style="color: #90D26D;">PKR ${data.netAmount.toFixed(2)}</strong>
+            </div>
+            <div class="detail-row">
+              <span>Payout ID:</span>
+              <strong>${data.payoutId}</strong>
+            </div>
+          </div>
+
+          <p><strong>Action Required:</strong> No action needed. This is an automatic notification for your records.</p>
+          
+          <p>If you need to hold future payments from this creator, update the payment hold status in the admin panel.</p>
+        </div>
+        <div class="footer">
+          <p>&copy; 2026 Sehat Makaan Admin System. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+/**
+ * Admin function to manually hold/release workshop payment
+ * HTTPS callable function (requires admin authentication)
+ */
+exports.adminControlWorkshopPayout = functions.https.onCall(async (data, context) => {
+  // Security: Check if user is authenticated
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'User must be authenticated to perform this action'
+    );
+  }
+
+  // Security: Check if user is admin (you should verify this from your admin collection)
+  const userId = context.auth.uid;
+  const userDoc = await admin.firestore().collection('users').doc(userId).get();
+  
+  if (!userDoc.exists || userDoc.data().userType !== 'admin') {
+    throw new functions.https.HttpsError(
+      'permission-denied',
+      'Only admins can control workshop payouts'
+    );
+  }
+
+  const { workshopId, action, reason } = data;
+
+  // Validate input
+  if (!workshopId || !action) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'workshopId and action are required'
+    );
+  }
+
+  if (!['hold', 'release'].includes(action)) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'action must be either "hold" or "release"'
+    );
+  }
+
+  try {
+    const workshopRef = admin.firestore().collection('workshops').doc(workshopId);
+    const workshopDoc = await workshopRef.get();
+
+    if (!workshopDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Workshop not found');
+    }
+
+    const workshopData = workshopDoc.data();
+
+    if (action === 'hold') {
+      // Admin wants to HOLD the payment
+      await workshopRef.update({
+        paymentHold: true,
+        paymentHoldAt: admin.firestore.FieldValue.serverTimestamp(),
+        paymentHoldBy: userId,
+        paymentHoldReason: reason || 'Admin hold',
+      });
+
+      // Log the action
+      await admin.firestore().collection('admin_actions').add({
+        actionType: 'payment_hold',
+        workshopId: workshopId,
+        workshopTitle: workshopData.title,
+        performedBy: userId,
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reason: reason || 'Admin hold',
+      });
+
+      // Notify creator
+      if (workshopData.creatorEmail && transporter) {
+        await admin.firestore().collection('email_queue').add({
+          to: workshopData.creatorEmail,
+          subject: `⚠️ Payment on Hold - ${workshopData.title}`,
+          htmlContent: `
+            <h2>Payment Hold Notice</h2>
+            <p>Dear ${workshopData.creatorName || 'Creator'},</p>
+            <p>Your workshop revenue is currently on hold by the admin team.</p>
+            <p><strong>Workshop:</strong> ${workshopData.title}</p>
+            <p><strong>Reason:</strong> ${reason || 'Under review'}</p>
+            <p>Please contact support at sehatmakaan@gmail.com for more information.</p>
+          `,
+          status: 'pending',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          retryCount: 0,
+        });
+      }
+
+      return { success: true, message: 'Payment held successfully', action: 'hold' };
+
+    } else if (action === 'release') {
+      // Admin wants to MANUALLY RELEASE the payment
+      
+      // Get all successful payments for this workshop
+      const paymentsSnapshot = await admin.firestore()
+        .collection('workshop_payments')
+        .where('workshopId', '==', workshopId)
+        .where('status', '==', 'paid')
+        .get();
+
+      if (paymentsSnapshot.empty) {
+        throw new functions.https.HttpsError('not-found', 'No payments found for this workshop');
+      }
+
+      // Calculate total revenue and fees
+      let totalRevenue = 0;
+      let totalFees = 0;
+      const transactionCount = paymentsSnapshot.size;
+
+      paymentsSnapshot.docs.forEach(paymentDoc => {
+        const amount = parseFloat(paymentDoc.data().amount_gross || 0);
+        totalRevenue += amount;
+        totalFees += calculatePayFastFee(amount);
+      });
+
+      const netRevenue = totalRevenue - totalFees;
+
+      // Create payout record
+      const payoutRef = admin.firestore().collection('workshop_payouts').doc();
+      const payoutData = {
+        payoutId: payoutRef.id,
+        workshopId: workshopId,
+        creatorId: workshopData.creatorId,
+        creatorEmail: workshopData.creatorEmail || '',
+        workshopTitle: workshopData.title || 'Unknown Workshop',
+        totalRevenue: totalRevenue,
+        totalTransactions: transactionCount,
+        totalFees: totalFees,
+        netAmount: netRevenue,
+        status: 'released',
+        releaseType: 'manual',
+        releasedAt: admin.firestore.FieldValue.serverTimestamp(),
+        releasedBy: userId,
+        notes: reason || 'Manually released by admin',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      await payoutRef.set(payoutData);
+
+      // Update workshop document
+      await workshopRef.update({
+        revenueReleased: true,
+        revenueReleasedAt: admin.firestore.FieldValue.serverTimestamp(),
+        totalRevenue: totalRevenue,
+        totalFees: totalFees,
+        netRevenue: netRevenue,
+        payoutId: payoutRef.id,
+        paymentHold: false,
+        paymentHoldReason: null,
+      });
+
+      // Log the action
+      await admin.firestore().collection('admin_actions').add({
+        actionType: 'payment_release',
+        workshopId: workshopId,
+        workshopTitle: workshopData.title,
+        performedBy: userId,
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+        amount: netRevenue,
+        payoutId: payoutRef.id,
+        notes: reason || 'Manual release',
+      });
+
+      // Send emails (creator + admin)
+      if (workshopData.creatorEmail && transporter) {
+        await admin.firestore().collection('email_queue').add({
+          to: workshopData.creatorEmail,
+          subject: `💰 Revenue Released - ${workshopData.title}`,
+          htmlContent: generateRevenueReleaseEmail({
+            creatorName: workshopData.creatorName || 'Workshop Creator',
+            workshopTitle: workshopData.title,
+            totalRevenue: totalRevenue,
+            totalFees: totalFees,
+            netAmount: netRevenue,
+            transactionCount: transactionCount,
+            payoutId: payoutRef.id,
+          }),
+          status: 'pending',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          retryCount: 0,
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Payment released successfully',
+        action: 'release',
+        netAmount: netRevenue,
+        payoutId: payoutRef.id,
+      };
+    }
+
+  } catch (error) {
+    console.error('❌ Error in admin payout control:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+/**
+ * Get payout history for a workshop or creator
+ * HTTPS callable function
+ */
+exports.getPayoutHistory = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { workshopId, creatorId } = data;
+  const userId = context.auth.uid;
+
+  try {
+    // Check if user is admin or the creator
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const isAdmin = userDoc.exists && userDoc.data().userType === 'admin';
+    const isCreator = userId === creatorId;
+
+    if (!isAdmin && !isCreator) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'You do not have permission to view these payouts'
+      );
+    }
+
+    let query = admin.firestore().collection('workshop_payouts');
+
+    if (workshopId) {
+      query = query.where('workshopId', '==', workshopId);
+    } else if (creatorId) {
+      query = query.where('creatorId', '==', creatorId);
+    } else {
+      throw new functions.https.HttpsError('invalid-argument', 'workshopId or creatorId required');
+    }
+
+    const payoutsSnapshot = await query.orderBy('releasedAt', 'desc').limit(50).get();
+
+    const payouts = payoutsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      releasedAt: doc.data().releasedAt?.toDate().toISOString(),
+      createdAt: doc.data().createdAt?.toDate().toISOString(),
+    }));
+
+    return { success: true, payouts };
+
+  } catch (error) {
+    console.error('❌ Error fetching payout history:', error);
+    throw new functions.https.HttpsError('internal', error.message);
   }
 });
 

@@ -190,15 +190,33 @@ class WorkshopsTab extends StatelessWidget {
                             ),
                           ),
                         )
-                      : ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: pendingProposals.length,
-                          separatorBuilder: (context, index) =>
-                              const Divider(height: 24),
-                          itemBuilder: (context, index) {
-                            final proposal = pendingProposals[index];
-                            return _buildProposalCard(context, proposal);
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            final spacing = ResponsiveHelper.getSpacing(
+                              context,
+                            );
+                            final availableWidth = constraints.maxWidth;
+                            final columnCount =
+                                ResponsiveHelper.getColumnCountForWidth(
+                                  availableWidth,
+                                  minTileWidth: 420,
+                                  maxColumns: 3,
+                                );
+                            final itemWidth =
+                                (availableWidth -
+                                    (spacing * (columnCount - 1))) /
+                                columnCount;
+
+                            return Wrap(
+                              spacing: spacing,
+                              runSpacing: spacing,
+                              children: pendingProposals.map((proposal) {
+                                return SizedBox(
+                                  width: itemWidth,
+                                  child: _buildProposalCard(context, proposal),
+                                );
+                              }).toList(),
+                            );
                           },
                         ),
                 ],
@@ -209,7 +227,7 @@ class WorkshopsTab extends StatelessWidget {
 
           // 💰 PHASE 4: PENDING PAYOUT REQUESTS SECTION
           if (onReleaseWorkshopPayout != null) ...[
-            _buildPayoutRequestsSection(),
+            _buildPayoutRequestsSection(context),
             const SizedBox(height: 16),
           ],
 
@@ -235,15 +253,36 @@ class WorkshopsTab extends StatelessWidget {
                             ),
                           ),
                         )
-                      : ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: workshops.length,
-                          separatorBuilder: (context, index) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            final workshop = workshops[index];
-                            return _buildFinancialLedgerCard(context, workshop);
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            final spacing = ResponsiveHelper.getSpacing(
+                              context,
+                            );
+                            final availableWidth = constraints.maxWidth;
+                            final columnCount =
+                                ResponsiveHelper.getColumnCountForWidth(
+                                  availableWidth,
+                                  minTileWidth: 420,
+                                  maxColumns: 3,
+                                );
+                            final itemWidth =
+                                (availableWidth -
+                                    (spacing * (columnCount - 1))) /
+                                columnCount;
+
+                            return Wrap(
+                              spacing: spacing,
+                              runSpacing: spacing,
+                              children: workshops.map((workshop) {
+                                return SizedBox(
+                                  width: itemWidth,
+                                  child: _buildFinancialLedgerCard(
+                                    context,
+                                    workshop,
+                                  ),
+                                );
+                              }).toList(),
+                            );
                           },
                         ),
                 ],
@@ -274,15 +313,35 @@ class WorkshopsTab extends StatelessWidget {
                             ),
                           ),
                         )
-                      : ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: workshopRegistrations.length,
-                          separatorBuilder: (context, index) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            final registration = workshopRegistrations[index];
-                            return _buildRegistrationCard(registration);
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            final spacing = ResponsiveHelper.getSpacing(
+                              context,
+                            );
+                            final availableWidth = constraints.maxWidth;
+                            final columnCount =
+                                ResponsiveHelper.getColumnCountForWidth(
+                                  availableWidth,
+                                  minTileWidth: 380,
+                                  maxColumns: 3,
+                                );
+                            final itemWidth =
+                                (availableWidth -
+                                    (spacing * (columnCount - 1))) /
+                                columnCount;
+
+                            return Wrap(
+                              spacing: spacing,
+                              runSpacing: spacing,
+                              children: workshopRegistrations.map((
+                                registration,
+                              ) {
+                                return SizedBox(
+                                  width: itemWidth,
+                                  child: _buildRegistrationCard(registration),
+                                );
+                              }).toList(),
+                            );
                           },
                         ),
                 ],
@@ -460,7 +519,7 @@ class WorkshopsTab extends StatelessWidget {
   }
 
   // 💰 PHASE 5: PAYOUT REQUESTS SECTION
-  Widget _buildPayoutRequestsSection() {
+  Widget _buildPayoutRequestsSection(BuildContext context) {
     final payoutRequests = workshops
         .where(
           (w) =>
@@ -511,14 +570,29 @@ class WorkshopsTab extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: payoutRequests.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final workshop = payoutRequests[index];
-                return _buildPayoutRequestCard(workshop);
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final spacing = ResponsiveHelper.getSpacing(context);
+                final availableWidth = constraints.maxWidth;
+                final columnCount = ResponsiveHelper.getColumnCountForWidth(
+                  availableWidth,
+                  minTileWidth: 420,
+                  maxColumns: 3,
+                );
+                final itemWidth =
+                    (availableWidth - (spacing * (columnCount - 1))) /
+                    columnCount;
+
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: payoutRequests.map((workshop) {
+                    return SizedBox(
+                      width: itemWidth,
+                      child: _buildPayoutRequestCard(workshop),
+                    );
+                  }).toList(),
+                );
               },
             ),
           ],

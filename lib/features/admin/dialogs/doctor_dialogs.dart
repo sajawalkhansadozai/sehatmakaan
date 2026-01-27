@@ -7,63 +7,14 @@ class DoctorDialogs {
     BuildContext context,
     Map<String, dynamic> doctor,
   ) async {
-    final reasonController = TextEditingController();
     final isMobile = ResponsiveHelper.isMobile(context);
 
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Reject Doctor Application',
-          style: TextStyle(fontSize: isMobile ? 16 : 18),
-        ),
-        content: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: ResponsiveHelper.getDialogWidth(context),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Rejecting ${doctor['fullName']}\'s application',
-                style: TextStyle(fontSize: isMobile ? 13 : 14),
-              ),
-              SizedBox(height: isMobile ? 12 : 16),
-              TextField(
-                controller: reasonController,
-                maxLines: isMobile ? 3 : 4,
-                decoration: const InputDecoration(
-                  hintText: 'Enter rejection reason...',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (reasonController.text.trim().isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter reason')),
-                );
-                return;
-              }
-              Navigator.pop(context, reasonController.text.trim());
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Reject'),
-          ),
-        ],
-      ),
+      builder: (context) =>
+          _RejectDoctorDialog(doctor: doctor, isMobile: isMobile),
     );
 
-    reasonController.dispose();
     return result;
   }
 
@@ -105,5 +56,88 @@ class DoctorDialogs {
     );
 
     return result ?? false;
+  }
+}
+
+// ✅ Stateful dialog to properly manage TextEditingController lifecycle
+class _RejectDoctorDialog extends StatefulWidget {
+  final Map<String, dynamic> doctor;
+  final bool isMobile;
+
+  const _RejectDoctorDialog({required this.doctor, required this.isMobile});
+
+  @override
+  State<_RejectDoctorDialog> createState() => _RejectDoctorDialogState();
+}
+
+class _RejectDoctorDialogState extends State<_RejectDoctorDialog> {
+  late TextEditingController reasonController;
+
+  @override
+  void initState() {
+    super.initState();
+    // ✅ Initialize controller in initState - survives dialog rebuild
+    reasonController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    // ✅ Dispose only when dialog is truly closed
+    reasonController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        'Reject Doctor Application',
+        style: TextStyle(fontSize: widget.isMobile ? 16 : 18),
+      ),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: ResponsiveHelper.getDialogWidth(context),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Rejecting ${widget.doctor['fullName']}\'s application',
+              style: TextStyle(fontSize: widget.isMobile ? 13 : 14),
+            ),
+            SizedBox(height: widget.isMobile ? 12 : 16),
+            TextField(
+              controller: reasonController,
+              maxLines: widget.isMobile ? 3 : 4,
+              decoration: const InputDecoration(
+                hintText: 'Enter rejection reason...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (reasonController.text.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please enter reason')),
+              );
+              return;
+            }
+            // ✅ Pass the reason and close dialog
+            Navigator.pop(context, reasonController.text.trim());
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          child: const Text('Reject'),
+        ),
+      ],
+    );
   }
 }

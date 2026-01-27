@@ -40,6 +40,10 @@ class _DashboardPageState extends State<DashboardPage>
   StreamSubscription<QuerySnapshot>? _notificationsListener;
   StreamSubscription<QuerySnapshot>? _creatorStatusListener;
   StreamSubscription<QuerySnapshot>? _creatorRequestListener;
+  StreamSubscription<QuerySnapshot>?
+  _workshopPayoutsListener; // 💰 Real-time revenue
+  StreamSubscription<QuerySnapshot>?
+  _workshopRegistrationsListener; // 📋 Real-time pending requests
 
   bool _isLoading = true;
   String _selectedTab = 'dashboard';
@@ -81,6 +85,9 @@ class _DashboardPageState extends State<DashboardPage>
     _notificationsListener?.cancel();
     _creatorStatusListener?.cancel();
     _creatorRequestListener?.cancel();
+    _workshopPayoutsListener?.cancel(); // 💰 Cancel revenue listener
+    _workshopRegistrationsListener
+        ?.cancel(); // 📋 Cancel pending requests listener
     _staggerController.dispose();
     super.dispose();
   }
@@ -118,57 +125,132 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   /// God-Level UI: Load workshop statistics for Creator Insight Hub
+  /// 💰 OPTION 1: Total Revenue - Real-time from workshop payouts
+  /// 📋 OPTION 2: Pending Requests - Real-time pending registrations
+  /// ⭐ OPTION 3: Platform Score - Calculated from activity
   Future<void> _loadWorkshopStats() async {
     if (!_isWorkshopCreator) return;
     final userId = widget.userSession['id']?.toString();
     if (userId == null) return;
 
     try {
-      // Calculate total revenue from completed workshops
+      debugPrint('💎 Loading Creator Stats for user: $userId');
+
+      // ============================================================
+      // OPTION 1️⃣: TOTAL REVENUE - From released payouts
+      // ============================================================
+      double totalRevenue = 0.0;
+
+      // Get all released payouts for this creator
+      final payoutsSnapshot = await _firestore
+          .collection('workshop_payouts')
+          .where('creatorId', isEqualTo: userId)
+          .where('status', isEqualTo: 'released')
+          .get();
+
+      debugPrint('💰 Found ${payoutsSnapshot.docs.length} released payouts');
+
+      for (final payout in payoutsSnapshot.docs) {
+        final netAmount = payout.data()['netAmount'] as num? ?? 0;
+        totalRevenue += netAmount.toDouble();
+      }
+
+      debugPrint('💰 Total Revenue: PKR $totalRevenue');
+
+      // ============================================================
+      // OPTION 2️⃣: PENDING REQUESTS - Workshop join requests pending approval
+      // ============================================================
+      int pendingCount = 0;
+
+      // Get all creator's active workshops
+      final creatorsWorkshops = await _firestore
+          .collection('workshops')
+          .where('createdBy', isEqualTo: userId)
+          .where('status', isEqualTo: 'active')
+          .get();
+
+      debugPrint(
+        '📚 Creator has ${creatorsWorkshops.docs.length} active workshops',
+      );
+
+      // Count pending registrations across all workshops
+      for (final workshop in creatorsWorkshops.docs) {
+        final pendingRegistrations = await _firestore
+            .collection('workshop_registrations')
+            .where('workshopId', isEqualTo: workshop.id)
+            .where('approvalStatus', isEqualTo: 'pending_creator')
+            .get();
+
+        pendingCount += pendingRegistrations.docs.length;
+        debugPrint(
+          '  📋 Workshop "${workshop.data()['title']}": ${pendingRegistrations.docs.length} pending requests',
+        );
+      }
+
+      debugPrint('📋 Total Pending Requests: $pendingCount');
+
+      // ============================================================
+      // OPTION 3️⃣: PLATFORM SCORE - Based on creator activity
+      // ============================================================
+      int platformScore = 85; // Base score for approved creators
+
+      // Add points for completed workshops (max +10)
       final completedWorkshops = await _firestore
           .collection('workshops')
           .where('createdBy', isEqualTo: userId)
           .where('status', isEqualTo: 'completed')
           .get();
 
-      double totalRevenue = 0;
-      for (final doc in completedWorkshops.docs) {
-        final price = doc.data()['price'] as num? ?? 0;
+      final completedCount = completedWorkshops.docs.length;
+      platformScore += (completedCount * 2).clamp(0, 10); // Max +10 points
+
+      // Add points for total registrations (max +5)
+      int totalRegistrations = 0;
+      for (final workshop in creatorsWorkshops.docs) {
         final registrations = await _firestore
             .collection('workshop_registrations')
-            .where('workshopId', isEqualTo: doc.id)
-            .where('paymentStatus', isEqualTo: 'completed')
-            .get();
-        totalRevenue += (price * registrations.docs.length);
-      }
-
-      // Count pending join requests - get all creator's workshops first
-      final creatorWorkshops = await _firestore
-          .collection('workshops')
-          .where('createdBy', isEqualTo: userId)
-          .get();
-
-      int pendingCount = 0;
-      for (final workshop in creatorWorkshops.docs) {
-        final pendingRegistrations = await _firestore
-            .collection('workshop_registrations')
             .where('workshopId', isEqualTo: workshop.id)
-            .where('approvalStatus', isEqualTo: 'pending_creator')
             .get();
-        pendingCount += pendingRegistrations.docs.length;
+        totalRegistrations += registrations.docs.length;
       }
 
+      platformScore += (totalRegistrations > 0
+          ? 5
+          : 0); // +5 if has registrations
+
+      // Add points for revenue (max +5)
+      if (totalRevenue > 100000) {
+        platformScore += 5; // +5 for revenue > 100k
+      } else if (totalRevenue > 50000) {
+        platformScore += 3; // +3 for revenue > 50k
+      } else if (totalRevenue > 10000) {
+        platformScore += 1; // +1 for some revenue
+      }
+
+      platformScore = platformScore.clamp(0, 100); // Max 100
+
+      debugPrint(
+        '⭐ Platform Score: $platformScore (completed: $completedCount, registrations: $totalRegistrations, revenue: PKR$totalRevenue)',
+      );
+
+      // ============================================================
+      // UPDATE STATE WITH ALL 3 OPTIONS
+      // ============================================================
       if (mounted) {
         setState(() {
           _workshopStats = {
             'totalRevenue': totalRevenue,
             'pendingRequests': pendingCount,
-            'platformScore': 85 + (completedWorkshops.docs.length * 2),
+            'platformScore': platformScore,
+            'completedWorkshops': completedCount,
+            'totalRegistrations': totalRegistrations,
           };
         });
+
+        debugPrint('✅ Creator stats updated successfully!');
       }
     } catch (e) {
-      debugPrint('Error loading workshop stats: $e');
+      debugPrint('❌ Error loading workshop stats: $e');
     }
   }
 
@@ -204,6 +286,7 @@ class _DashboardPageState extends State<DashboardPage>
                 ),
               );
               _loadWorkshopStats();
+              _setupCreatorStatsListeners(); // 💎 Start real-time listeners for stats
             }
           }
         });
@@ -223,6 +306,49 @@ class _DashboardPageState extends State<DashboardPage>
             debugPrint(
               '🔄 Pending creator request status: ${snapshot.docs.isNotEmpty}',
             );
+          }
+        });
+
+    // 💎 Setup real-time listeners for creator stats when user becomes creator
+    if (_isWorkshopCreator) {
+      _setupCreatorStatsListeners();
+    }
+  }
+
+  /// 💎 Real-time listeners for Creator Stats
+  /// Auto-updates Total Revenue, Pending Requests, and Platform Score
+  void _setupCreatorStatsListeners() {
+    final userId = widget.userSession['id']?.toString();
+    if (userId == null) return;
+
+    debugPrint('💎 Setting up creator stats real-time listeners...');
+
+    // 💰 OPTION 1: Listen for payout changes (Total Revenue)
+    _workshopPayoutsListener = _firestore
+        .collection('workshop_payouts')
+        .where('creatorId', isEqualTo: userId)
+        .where('status', isEqualTo: 'released')
+        .snapshots()
+        .listen((snapshot) {
+          if (mounted) {
+            debugPrint(
+              '💰 Real-time: Payouts changed (${snapshot.docs.length} released payouts)',
+            );
+            _loadWorkshopStats(); // Reload all stats
+          }
+        });
+
+    // 📋 OPTION 2: Listen for workshop registrations (Pending Requests)
+    _workshopRegistrationsListener = _firestore
+        .collection('workshop_registrations')
+        .where('approvalStatus', isEqualTo: 'pending_creator')
+        .snapshots()
+        .listen((snapshot) {
+          if (mounted) {
+            debugPrint(
+              '📋 Real-time: Workshop registrations changed (${snapshot.docs.length} total)',
+            );
+            _loadWorkshopStats(); // Reload pending count
           }
         });
   }
@@ -986,6 +1112,34 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildQuickActionsSection() {
+    // Build the conditional workshop option
+    Map<String, dynamic>? workshopOption;
+    if (_isWorkshopCreator) {
+      workshopOption = {
+        'title': 'Create Workshop',
+        'icon': Icons.add_box,
+        'primaryColor': const Color(0xFF90D26D),
+        'secondaryColor': const Color(0xFF70B24D),
+        'route': '/create-workshop',
+      };
+    } else if (_hasPendingCreatorRequest) {
+      workshopOption = {
+        'title': 'Request Pending',
+        'icon': Icons.pending,
+        'primaryColor': Colors.orange,
+        'secondaryColor': Colors.deepOrange,
+        'isPending': true,
+      };
+    } else {
+      workshopOption = {
+        'title': 'Request Creator Access',
+        'icon': Icons.person_add,
+        'primaryColor': const Color(0xFFFF6B35),
+        'secondaryColor': const Color(0xFFFF8C42),
+        'isCreatorRequest': true,
+      };
+    }
+
     final actions = [
       {
         'title': 'Book Slot',
@@ -1015,30 +1169,7 @@ class _DashboardPageState extends State<DashboardPage>
         'secondaryColor': const Color(0xFF004D57),
         'route': '/workshops',
       },
-      if (_isWorkshopCreator)
-        {
-          'title': 'Create Workshop',
-          'icon': Icons.add_box,
-          'primaryColor': const Color(0xFF90D26D),
-          'secondaryColor': const Color(0xFF70B24D),
-          'route': '/create-workshop',
-        }
-      else if (_hasPendingCreatorRequest)
-        {
-          'title': 'Request Pending',
-          'icon': Icons.pending,
-          'primaryColor': Colors.orange,
-          'secondaryColor': Colors.deepOrange,
-          'isPending': true,
-        }
-      else
-        {
-          'title': 'Request Creator Access',
-          'icon': Icons.person_add,
-          'primaryColor': const Color(0xFFFF6B35),
-          'secondaryColor': const Color(0xFFFF8C42),
-          'isCreatorRequest': true,
-        },
+      workshopOption,
     ];
 
     return Column(

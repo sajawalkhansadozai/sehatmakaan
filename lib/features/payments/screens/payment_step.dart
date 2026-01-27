@@ -44,19 +44,22 @@ class _PaymentStepState extends State<PaymentStep> {
   Future<void> _processPayFastPayment() async {
     // Prevent duplicate payment processing
     if (_isProcessingPayment) {
-      debugPrint('?? Payment already in progress');
+      debugPrint('⚠️ Payment already in progress');
       return;
     }
 
     setState(() => _isProcessingPayment = true);
 
     try {
-      // Generate registration ID once to ensure consistency
-      final registrationId =
-          widget.bookingId ?? DateTime.now().millisecondsSinceEpoch.toString();
+      // ✅ FIX: Use bookingId if available, otherwise generate registrationId
+      final bookingId = widget.bookingId;
+      final registrationId = DateTime.now().millisecondsSinceEpoch.toString();
 
-      debugPrint('?? Starting payment for registration: $registrationId');
+      debugPrint(
+        '💳 Starting payment for booking: $bookingId, registration: $registrationId',
+      );
 
+      // ✅ FIX: Pass bookingId and paymentType to service
       final paymentUrl = _payFastService.generatePaymentUrl(
         registrationId: registrationId,
         workshopTitle:
@@ -64,8 +67,11 @@ class _PaymentStepState extends State<PaymentStep> {
         amount: widget.totalAmount,
         userEmail: widget.userEmail,
         userName: widget.userName,
+        bookingId: bookingId, // ✅ NEW
+        paymentType: 'booking', // ✅ NEW
       );
 
+      // ✅ FIX: Create payment in booking_payments collection
       _currentPaymentId = await _payFastService.createPaymentRecord(
         registrationId: registrationId,
         workshopId: 'booking_${widget.bookingType}',
@@ -73,9 +79,11 @@ class _PaymentStepState extends State<PaymentStep> {
         amount: widget.totalAmount,
         userEmail: widget.userEmail,
         userName: widget.userName,
+        bookingId: bookingId, // ✅ NEW
+        paymentType: 'booking', // ✅ NEW
       );
 
-      debugPrint('?? Payment record created: $_currentPaymentId');
+      debugPrint('✅ Payment record created: $_currentPaymentId');
 
       // Navigate to in-app WebView for payment
       if (mounted) {

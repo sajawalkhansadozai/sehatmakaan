@@ -38,11 +38,6 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
   bool _hasMoreWorkshops = true;
   DocumentSnapshot? _lastDocument;
 
-  // GOD MODE: System settings
-  Map<String, dynamic> _systemSettings = {};
-  bool _isMaintenanceMode = false;
-  bool _isShadowBanned = false;
-
   @override
   void dispose() {
     _countdownTimer?.cancel();
@@ -54,8 +49,6 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
   @override
   void initState() {
     super.initState();
-    _loadSystemSettings();
-    _checkShadowBan();
     _loadWorkshops();
     _loadMyProposals();
     _loadMyRegistrations();
@@ -296,106 +289,8 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
   }
 
   // ============================================================================
-  // GOD MODE: SYSTEM CHECKS
+  // WORKSHOP ACTIONS
   // ============================================================================
-
-  Future<void> _loadSystemSettings() async {
-    try {
-      final settingsDoc = await _firestore
-          .collection('app_settings')
-          .doc('system_config')
-          .get();
-
-      if (settingsDoc.exists && mounted) {
-        setState(() {
-          _systemSettings = settingsDoc.data() ?? {};
-          _isMaintenanceMode = _systemSettings['isMaintenanceMode'] ?? false;
-        });
-      }
-    } catch (e) {
-      debugPrint('⚠️ Failed to load system settings: $e');
-    }
-  }
-
-  Future<void> _checkShadowBan() async {
-    try {
-      final userId = widget.userSession['id']?.toString();
-      if (userId == null) return;
-
-      final userDoc = await _firestore.collection('users').doc(userId).get();
-      if (userDoc.exists && mounted) {
-        final userData = userDoc.data() ?? {};
-        setState(() {
-          _isShadowBanned = userData['isShadowBanned'] ?? false;
-        });
-      }
-    } catch (e) {
-      debugPrint('⚠️ Failed to check shadow ban status: $e');
-    }
-  }
-
-  bool _canPerformAction() {
-    if (_isMaintenanceMode) {
-      _showMaintenanceDialog();
-      return false;
-    }
-    if (_isShadowBanned) {
-      _showActionRestrictedDialog();
-      return false;
-    }
-    return true;
-  }
-
-  void _showMaintenanceDialog() {
-    final message =
-        _systemSettings['maintenanceMessage'] ??
-        'The system is currently under maintenance. Please try again later.';
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Maintenance Mode'),
-          ],
-        ),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showActionRestrictedDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.block, color: Colors.red),
-            SizedBox(width: 8),
-            Text('Action Restricted'),
-          ],
-        ),
-        content: const Text(
-          'This action is currently restricted. '
-          'Please contact support if you believe this is an error.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -693,9 +588,6 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
       creatorName: creatorId != null ? _creatorNames[creatorId] : null,
       isCreator: isCreator,
       onTap: () {
-        // GOD MODE: Check restrictions before allowing registration
-        if (!_canPerformAction()) return;
-
         // ✅ PROPER FLOW: Go to registration form first
         Navigator.pushNamed(
           context,
@@ -2569,7 +2461,6 @@ class _WorkshopsPageState extends State<WorkshopsPage> {
                   ? null
                   : () {
                       // GOD MODE: Check restrictions before allowing payment
-                      if (!_canPerformAction()) return;
 
                       // Navigate to checkout page
                       Navigator.pushNamed(

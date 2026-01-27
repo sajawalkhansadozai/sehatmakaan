@@ -145,6 +145,7 @@ class AuthService {
 
       // Check account status
       final status = userData['status'] as String?;
+      final userType = userData['userType'] as String? ?? 'doctor';
 
       if (status == 'suspended') {
         await _auth.signOut();
@@ -164,7 +165,8 @@ class AuthService {
         };
       }
 
-      if (status != 'approved') {
+      // ✅ IMPORTANT: Admins don't need approval, only regular users do
+      if (userType != 'admin' && status != 'approved') {
         await _auth.signOut();
         return {
           'success': false,

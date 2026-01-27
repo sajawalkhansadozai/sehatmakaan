@@ -371,29 +371,52 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
     if (picked != null) {
       setState(() {
         _startTime = picked;
+        // 🔄 Auto-calculate end time when start time changes
+        _calculateEndTime();
       });
     }
   }
 
-  Future<void> _selectEndTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _startTime ?? TimeOfDay.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: Color(0xFF006876)),
-          ),
-          child: child!,
-        );
-      },
-    );
+  // Calculate end time based on start time and duration
+  void _calculateEndTime() {
+    if (_startTime == null) return;
 
-    if (picked != null) {
-      setState(() {
-        _endTime = picked;
-      });
+    final durationText = _durationController.text.trim();
+    if (durationText.isEmpty) return;
+
+    final duration = int.tryParse(durationText);
+    if (duration == null || duration <= 0) return;
+
+    // Convert start time to minutes
+    int startMinutes = _startTime!.hour * 60 + _startTime!.minute;
+    // Add duration (hours)
+    int endMinutes = startMinutes + (duration * 60);
+
+    // Handle day overflow (if end time goes past midnight)
+    if (endMinutes >= 24 * 60) {
+      endMinutes = endMinutes % (24 * 60);
     }
+
+    final endHour = endMinutes ~/ 60;
+    final endMinute = endMinutes % 60;
+
+    setState(() {
+      _endTime = TimeOfDay(hour: endHour, minute: endMinute);
+    });
+  }
+
+  // Placeholder for end time selection (disabled - auto-calculated)
+  Future<void> _selectEndTime() async {
+    // End time is auto-calculated and read-only
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'End time is automatically calculated from Start Time + Duration',
+        ),
+        backgroundColor: Colors.teal,
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   String _formatDateTime() {
@@ -678,13 +701,24 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
             Row(
               children: [
                 Expanded(
-                  child: _buildTextField(
+                  child: TextField(
                     controller: _durationController,
-                    label: 'Duration (hours)',
-                    hint: 'e.g., 8',
-                    icon: Icons.schedule,
                     keyboardType: TextInputType.number,
-                    required: true,
+                    decoration: InputDecoration(
+                      labelText: 'Duration (hours) *',
+                      hintText: 'e.g., 6',
+                      prefixIcon: const Icon(Icons.schedule),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (_) {
+                      // 🔄 Recalculate end time whenever duration changes
+                      _calculateEndTime();
+                    },
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -1006,12 +1040,15 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: InkWell(
-                  onTap: _selectEndTime,
+                  onTap: _selectEndTime, // Shows info message only
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey.shade300),
                       borderRadius: BorderRadius.circular(8),
+                      color: Colors
+                          .grey
+                          .shade50, // Slightly grayed to show disabled state
                     ),
                     child: Row(
                       children: [
@@ -1024,24 +1061,39 @@ class _CreateWorkshopPageState extends State<CreateWorkshopPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'End Time *',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                              Row(
+                                children: [
+                                  const Text(
+                                    'End Time (Auto)',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Tooltip(
+                                    message:
+                                        'Automatically calculated: Start Time + Duration',
+                                    child: Icon(
+                                      Icons.info_outline,
+                                      size: 14,
+                                      color: Colors.teal,
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 _endTime == null
-                                    ? 'Select'
+                                    ? 'Will auto-calculate'
                                     : _endTime!.format(context),
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: _endTime == null
                                       ? Colors.grey.shade400
                                       : Colors.black87,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],

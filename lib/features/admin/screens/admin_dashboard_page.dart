@@ -211,13 +211,35 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         .collection('users')
         .where('userType', isEqualTo: 'doctor')
         .snapshots()
-        .listen((snapshot) {
+        .listen((snapshot) async {
+          // Build doctors list with live stats (bookings + subscriptions)
+          final doctorsWithStats = await Future.wait(
+            snapshot.docs.map((doc) async {
+              final data = doc.data();
+
+              Map<String, dynamic> stats = {
+                'totalBookings': 0,
+                'activeBookings': 0,
+                'totalSubscriptions': 0,
+                'activeSubscriptions': 0,
+                'lastBookingDate': null,
+              };
+
+              try {
+                stats = await _dataService.enrichDoctorWithStats(doc.id);
+              } catch (e) {
+                debugPrint('Error enriching stats for ${doc.id}: $e');
+              }
+
+              return {'id': doc.id, ...data, 'stats': stats};
+            }),
+          );
+
           if (mounted) {
             setState(() {
-              _doctors.clear();
-              for (var doc in snapshot.docs) {
-                _doctors.add({'id': doc.id, ...doc.data()});
-              }
+              _doctors
+                ..clear()
+                ..addAll(doctorsWithStats);
             });
           }
         });
@@ -425,10 +447,37 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     try {
       final doctors = await _dataService.loadDoctors(_filterStatus);
 
+      // Enrich each doctor with live stats before rendering
+      final enrichedDoctors = await Future.wait(
+        doctors.map((doctor) async {
+          final doctorId = doctor['id'] as String?;
+
+          if (doctorId == null) return doctor;
+
+          Map<String, dynamic> stats =
+              doctor['stats'] as Map<String, dynamic>? ??
+              {
+                'totalBookings': 0,
+                'activeBookings': 0,
+                'totalSubscriptions': 0,
+                'activeSubscriptions': 0,
+                'lastBookingDate': null,
+              };
+
+          try {
+            stats = await _dataService.enrichDoctorWithStats(doctorId);
+          } catch (e) {
+            debugPrint('Error enriching stats for $doctorId: $e');
+          }
+
+          return {...doctor, 'stats': stats};
+        }),
+      );
+
       if (mounted) {
         setState(() {
           _doctors.clear();
-          _doctors.addAll(doctors);
+          _doctors.addAll(enrichedDoctors);
         });
       }
     } catch (e) {
@@ -776,8 +825,14 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         await sessionService.clearUserSession();
                         debugPrint('🔓 Admin session cleared');
 
+                        // Sign out and reset navigation stack to the shared landing page
+                        await _auth.signOut();
+
                         if (context.mounted) {
-                          Navigator.pop(context); // Return to login
+                          Navigator.of(context).pushNamedAndRemoveUntil(
+                            '/landing',
+                            (route) => false,
+                          );
                         }
                       } else {
                         setState(() {

@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers/email_helper.dart';
 import '../helpers/notification_helper.dart';
 import 'package:sehat_makaan_flutter/features/admin/helpers/workshop_payment_helper.dart';
@@ -101,6 +103,12 @@ class AdminMutationsService {
       onLoadingStart();
 
       final doctorId = doctor['id'] as String;
+
+      // ✅ Debug: Log the reason being sent
+      debugPrint('🔴 REJECTING DOCTOR: $doctorId');
+      debugPrint('📝 REASON: $reason');
+      debugPrint('✉️ EMAIL: ${doctor['email']}');
+
       await _firestore.collection('users').doc(doctorId).update({
         'status': 'rejected',
         'rejectionReason': reason,
@@ -142,6 +150,8 @@ class AdminMutationsService {
       onLoadingStart();
 
       final doctorId = doctor['id'] as String;
+
+      // ✅ Step 1: Update status to suspended
       await _firestore.collection('users').doc(doctorId).update({
         'status': 'suspended',
         'isActive': false,
@@ -149,11 +159,137 @@ class AdminMutationsService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      // ✅ Step 2: Pause all active workshops/features
+      debugPrint('⏸️ PAUSING ALL WORKSHOPS FOR DOCTOR: $doctorId');
+      final workshopsQuery = await _firestore
+          .collection('workshops')
+          .where('createdBy', isEqualTo: doctorId)
+          .where('status', isNotEqualTo: 'archived')
+          .get();
+
+      for (var doc in workshopsQuery.docs) {
+        await _firestore.collection('workshops').doc(doc.id).update({
+          'status': 'paused',
+          'pausedAt': FieldValue.serverTimestamp(),
+          'pauseReason': 'Account suspended - Doctor features paused',
+        });
+        debugPrint('✅ Workshop paused: ${doc.id}');
+      }
+
+      // ✅ Step 3: Put all active bookings on hold
+      debugPrint('⏸️ PUTTING BOOKINGS ON HOLD FOR DOCTOR: $doctorId');
+      final bookingsQuery = await _firestore
+          .collection('bookings')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('status', whereIn: ['confirmed', 'pending'])
+          .get();
+
+      for (var doc in bookingsQuery.docs) {
+        // ✅ IMPORTANT: Save original status before putting on hold
+        final originalStatus = doc['status'] as String?;
+        await _firestore.collection('bookings').doc(doc.id).update({
+          'status': 'on_hold',
+          'holdReason': 'Doctor account suspended',
+          'originalStatus': originalStatus, // ✅ Save for restoration
+          'holdAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint('✅ Booking on hold (original: $originalStatus): ${doc.id}');
+      }
+
+      // ✅ Step 3A: Pause all active monthly subscriptions
+      debugPrint('⏸️ PAUSING MONTHLY SUBSCRIPTIONS FOR DOCTOR: $doctorId');
+      final subscriptionsQuery = await _firestore
+          .collection('subscriptions')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('status', isEqualTo: 'active')
+          .get();
+
+      for (var doc in subscriptionsQuery.docs) {
+        final originalStatus = doc['status'] as String?;
+        await _firestore.collection('subscriptions').doc(doc.id).update({
+          'status': 'paused',
+          'pauseReason': 'Doctor account suspended',
+          'originalStatus': originalStatus,
+          'pausedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint(
+          '✅ Subscription paused (original: $originalStatus): ${doc.id}',
+        );
+      }
+
+      // ✅ Step 3B: Handle future hourly bookings (upcoming slots)
+      debugPrint('⏸️ HANDLING FUTURE HOURLY BOOKINGS FOR DOCTOR: $doctorId');
+      final now = DateTime.now();
+      final todayStr =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+      final futureBookingsQuery = await _firestore
+          .collection('bookings')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('bookingDate', isGreaterThanOrEqualTo: todayStr)
+          .where('status', isEqualTo: 'confirmed')
+          .get();
+
+      for (var doc in futureBookingsQuery.docs) {
+        final originalStatus = doc['status'] as String?;
+        await _firestore.collection('bookings').doc(doc.id).update({
+          'status': 'on_hold',
+          'holdReason': 'Doctor suspended - Future booking',
+          'originalStatus': originalStatus,
+          'holdAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint('✅ Future hourly booking on hold: ${doc.id}');
+      }
+
+      // ✅ Step 3C: Handle workshop registrations with payments
+      debugPrint('⏸️ HANDLING WORKSHOP REGISTRATIONS FOR DOCTOR: $doctorId');
+      final doctorWorkshops = workshopsQuery.docs.map((d) => d.id).toList();
+
+      int workshopRegistrationsCount = 0;
+      if (doctorWorkshops.isNotEmpty) {
+        final registrationsQuery = await _firestore
+            .collection('workshop_registrations')
+            .where('workshopId', whereIn: doctorWorkshops)
+            .where('paymentStatus', isEqualTo: 'paid')
+            .where('status', whereIn: ['confirmed', 'pending'])
+            .get();
+
+        workshopRegistrationsCount = registrationsQuery.docs.length;
+
+        for (var doc in registrationsQuery.docs) {
+          final originalStatus = doc['status'] as String?;
+          await _firestore
+              .collection('workshop_registrations')
+              .doc(doc.id)
+              .update({
+                'status': 'on_hold',
+                'holdReason': 'Workshop creator account suspended',
+                'originalStatus': originalStatus,
+                'holdAt': FieldValue.serverTimestamp(),
+                'refundEligible': true, // Mark for potential refund
+              });
+          debugPrint('✅ Workshop registration on hold: ${doc.id}');
+        }
+      }
+
+      // ✅ Step 4: Check if suspended doctor is currently logged in
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && currentUser.uid == doctorId) {
+        // ✅ Step 5: Auto-logout if current user is the suspended doctor
+        debugPrint('🚪 AUTO-LOGOUT: Suspended doctor is currently logged in');
+        await _performAutoLogout();
+      }
+
       // Log admin action
       if (adminId != null) {
         await _logAdminAction(adminId, 'doctor_suspended', doctorId, {
           'doctorName': doctor['fullName'],
           'email': doctor['email'],
+          'workshopsPaused': workshopsQuery.docs.length,
+          'bookingsOnHold': bookingsQuery.docs.length,
+          'subscriptionsPaused': subscriptionsQuery.docs.length,
+          'futureBookingsOnHold': futureBookingsQuery.docs.length,
+          'workshopRegistrationsOnHold': workshopRegistrationsCount,
         });
       }
 
@@ -187,10 +323,13 @@ class AdminMutationsService {
               
               <p><strong>What this means:</strong></p>
               <ul>
-                <li>Your account access has been suspended</li>
-                <li>All activities and features are paused</li>
-                <li>You cannot login until the suspension is removed</li>
-                <li>Active bookings and subscriptions are on hold</li>
+                <li>✅ Your account access has been suspended</li>
+                <li>⏸️ All your workshops and features are paused</li>
+                <li>🚫 You cannot login until the suspension is removed</li>
+                <li>⏸️ Active bookings are on hold</li>
+                <li>⏸️ Monthly subscriptions are paused</li>
+                <li>⏸️ Future hourly bookings are on hold</li>
+                <li>⏸️ Workshop registrations with payments are on hold</li>
               </ul>
               
               <p><strong>Next Steps:</strong></p>
@@ -229,10 +368,12 @@ class AdminMutationsService {
         type: 'account_suspended',
         title: 'Account Suspended',
         message:
-            'Your account has been temporarily suspended. Contact admin for details.',
+            'Your account has been temporarily suspended. All features and bookings are paused.',
       );
 
-      showSuccess('${doctor['fullName']} has been suspended.');
+      showSuccess(
+        '${doctor['fullName']} has been suspended. All features and bookings paused.',
+      );
     } catch (e) {
       showError('Failed to suspend doctor: $e');
       rethrow;
@@ -245,13 +386,130 @@ class AdminMutationsService {
     try {
       onLoadingStart();
 
-      await _firestore.collection('users').doc(doctor['id']).update({
+      final doctorId = doctor['id'] as String;
+
+      // ✅ Step 1: Update status to approved
+      await _firestore.collection('users').doc(doctorId).update({
         'status': 'approved',
         'isActive': true,
         'suspendedAt': FieldValue.delete(),
         'unsuspendedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      // ✅ Step 2: Resume all paused workshops
+      debugPrint('▶️ RESUMING ALL WORKSHOPS FOR DOCTOR: $doctorId');
+      final workshopsQuery = await _firestore
+          .collection('workshops')
+          .where('createdBy', isEqualTo: doctorId)
+          .where('status', isEqualTo: 'paused')
+          .get();
+
+      for (var doc in workshopsQuery.docs) {
+        // Resume to previous active status
+        await _firestore.collection('workshops').doc(doc.id).update({
+          'status': 'active',
+          'pausedAt': FieldValue.delete(),
+          'pauseReason': FieldValue.delete(),
+          'resumedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint('✅ Workshop resumed: ${doc.id}');
+      }
+
+      // ✅ Step 3: Resume all bookings from hold
+      debugPrint('▶️ RESUMING BOOKINGS FOR DOCTOR: $doctorId');
+      final bookingsQuery = await _firestore
+          .collection('bookings')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('status', isEqualTo: 'on_hold')
+          .get();
+
+      for (var doc in bookingsQuery.docs) {
+        // ✅ IMPORTANT: Restore original status from when it was put on hold
+        final originalStatus = doc['originalStatus'] as String? ?? 'confirmed';
+        await _firestore.collection('bookings').doc(doc.id).update({
+          'status': originalStatus, // ✅ Restore to original status
+          'holdReason': FieldValue.delete(),
+          'originalStatus': FieldValue.delete(), // ✅ Clean up
+          'holdAt': FieldValue.delete(),
+          'resumedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint(
+          '✅ Booking resumed (restored to: $originalStatus): ${doc.id}',
+        );
+      }
+
+      // ✅ Step 3A: Resume monthly subscriptions
+      debugPrint('▶️ RESUMING MONTHLY SUBSCRIPTIONS FOR DOCTOR: $doctorId');
+      final subscriptionsQuery = await _firestore
+          .collection('subscriptions')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('status', isEqualTo: 'paused')
+          .get();
+
+      for (var doc in subscriptionsQuery.docs) {
+        final originalStatus = doc['originalStatus'] as String? ?? 'active';
+        await _firestore.collection('subscriptions').doc(doc.id).update({
+          'status': originalStatus,
+          'pauseReason': FieldValue.delete(),
+          'originalStatus': FieldValue.delete(),
+          'pausedAt': FieldValue.delete(),
+          'resumedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint(
+          '✅ Subscription resumed (restored to: $originalStatus): ${doc.id}',
+        );
+      }
+
+      // ✅ Step 3B: Resume future hourly bookings
+      debugPrint('▶️ RESUMING FUTURE HOURLY BOOKINGS FOR DOCTOR: $doctorId');
+      // Query for all on-hold bookings (includes future bookings)
+      final futureBookingsQuery = await _firestore
+          .collection('bookings')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('status', isEqualTo: 'on_hold')
+          .get();
+
+      for (var doc in futureBookingsQuery.docs) {
+        final originalStatus = doc['originalStatus'] as String? ?? 'confirmed';
+        await _firestore.collection('bookings').doc(doc.id).update({
+          'status': originalStatus,
+          'holdReason': FieldValue.delete(),
+          'originalStatus': FieldValue.delete(),
+          'holdAt': FieldValue.serverTimestamp(),
+          'resumedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint('✅ Future hourly booking resumed: ${doc.id}');
+      }
+
+      // ✅ Step 3C: Resume workshop registrations
+      debugPrint('▶️ RESUMING WORKSHOP REGISTRATIONS FOR DOCTOR: $doctorId');
+      final doctorWorkshops = workshopsQuery.docs.map((d) => d.id).toList();
+
+      if (doctorWorkshops.isNotEmpty) {
+        final registrationsQuery = await _firestore
+            .collection('workshop_registrations')
+            .where('workshopId', whereIn: doctorWorkshops)
+            .where('status', isEqualTo: 'on_hold')
+            .get();
+
+        for (var doc in registrationsQuery.docs) {
+          final originalStatus =
+              doc['originalStatus'] as String? ?? 'confirmed';
+          await _firestore
+              .collection('workshop_registrations')
+              .doc(doc.id)
+              .update({
+                'status': originalStatus,
+                'holdReason': FieldValue.delete(),
+                'originalStatus': FieldValue.delete(),
+                'holdAt': FieldValue.delete(),
+                'refundEligible': FieldValue.delete(),
+                'resumedAt': FieldValue.serverTimestamp(),
+              });
+          debugPrint('✅ Workshop registration resumed: ${doc.id}');
+        }
+      }
 
       // Send email notification
       final emailHtml =
@@ -262,7 +520,7 @@ class AdminMutationsService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .header { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
             .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
             .success-box { background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
             .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
@@ -271,33 +529,34 @@ class AdminMutationsService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>✅ Account Reactivated</h1>
+              <h1>✅ Account Restored</h1>
             </div>
             <div class="content">
               <p>Dear ${doctor['fullName']},</p>
               
               <div class="success-box">
-                <h3 style="margin-top: 0; color: #28a745;">Good News!</h3>
-                <p>Your account suspension has been removed and your account is now active.</p>
+                <h3 style="margin-top: 0; color: #28a745;">Suspension Removed</h3>
+                <p>Your account suspension has been removed. Your account is now fully restored.</p>
               </div>
               
-              <p><strong>What's restored:</strong></p>
+              <p><strong>Your account status:</strong></p>
               <ul>
-                <li>Full account access</li>
-                <li>All features and activities enabled</li>
-                <li>Login privileges restored</li>
-                <li>Active bookings and subscriptions resumed</li>
+                <li>✅ Full account access restored</li>
+                <li>▶️ All workshops and features are now active</li>
+                <li>✅ You can login normally</li>
+                <li>▶️ All bookings have been resumed</li>
+                <li>▶️ Monthly subscriptions are active again</li>
+                <li>▶️ Future hourly bookings are confirmed</li>
+                <li>▶️ Workshop registrations are restored</li>
               </ul>
               
-              <p>You can now login to your account and continue using all Sehat Makaan services.</p>
-              
-              <p>Please ensure you follow our Terms and Conditions to avoid future suspensions.</p>
+              <p>You can now login and continue your activities on Sehat Makaan.</p>
               
               <p>Best regards,<br>
               <strong>Sehat Makaan Team</strong></p>
             </div>
             <div class="footer">
-              <p>This is an automated message. Please do not reply to this email.</p>
+              <p>Sehat Makaan - Your Health, Our Priority</p>
             </div>
           </div>
         </body>
@@ -307,25 +566,28 @@ class AdminMutationsService {
       await EmailQueueHelper.queueEmail(
         firestore: _firestore,
         to: doctor['email'] ?? '',
-        subject: '✅ Account Reactivated - Sehat Makaan',
+        subject: '✅ Account Restored - Sehat Makaan',
         htmlContent: emailHtml,
         userId: doctor['id'],
         data: {
-          'type': 'account_reactivated',
+          'type': 'account_restored',
           'userId': doctor['id'],
-          'reactivatedAt': DateTime.now().toIso8601String(),
+          'unsuspendedAt': DateTime.now().toIso8601String(),
         },
       );
 
       await NotificationHelper.createNotification(
         firestore: _firestore,
         userId: doctor['id'] ?? '',
-        type: 'account_reactivated',
-        title: 'Account Reactivated',
-        message: 'Your account has been reactivated. You can now login.',
+        type: 'account_restored',
+        title: 'Account Restored',
+        message:
+            'Your account suspension has been removed. You can now login and use all features.',
       );
 
-      showSuccess('${doctor['fullName']} has been unsuspended.');
+      showSuccess(
+        '${doctor['fullName']} has been unsuspended. All features and bookings restored.',
+      );
     } catch (e) {
       showError('Failed to unsuspend doctor: $e');
       rethrow;
@@ -984,11 +1246,8 @@ class AdminMutationsService {
   /// Update global system settings (God Mode Control)
   Future<void> updateSystemSettings({
     required String adminId,
-    bool? isMaintenanceMode,
-    String? maintenanceMessage,
-    double? globalCommission,
+
     int? bookingNoticePeriod,
-    int? turnoverBuffer,
     int? minBookingDuration,
     int? maxBookingDuration,
   }) async {
@@ -1000,20 +1259,8 @@ class AdminMutationsService {
         'updatedBy': adminId,
       };
 
-      if (isMaintenanceMode != null) {
-        updateData['isMaintenanceMode'] = isMaintenanceMode;
-      }
-      if (maintenanceMessage != null) {
-        updateData['maintenanceMessage'] = maintenanceMessage;
-      }
-      if (globalCommission != null) {
-        updateData['globalCommission'] = globalCommission;
-      }
       if (bookingNoticePeriod != null) {
         updateData['bookingNoticePeriod'] = bookingNoticePeriod;
-      }
-      if (turnoverBuffer != null) {
-        updateData['turnoverBuffer'] = turnoverBuffer;
       }
       if (minBookingDuration != null) {
         updateData['minBookingDuration'] = minBookingDuration;
@@ -1175,6 +1422,26 @@ class AdminMutationsService {
       rethrow;
     } finally {
       onLoadingEnd();
+    }
+  }
+
+  // ✅ Auto-logout helper method
+  Future<void> _performAutoLogout() async {
+    try {
+      debugPrint('🚪 PERFORMING AUTO-LOGOUT');
+
+      // Clear local storage
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      debugPrint('✅ SharedPreferences cleared');
+
+      // Sign out from Firebase
+      await FirebaseAuth.instance.signOut();
+      debugPrint('✅ Firebase signOut completed');
+
+      showSuccess('Your account has been suspended. You have been logged out.');
+    } catch (e) {
+      debugPrint('❌ Error during auto-logout: $e');
     }
   }
 }

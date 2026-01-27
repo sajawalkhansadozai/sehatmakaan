@@ -90,6 +90,8 @@ class PayFastService {
     required double amount,
     required String userEmail,
     required String userName,
+    String? bookingId, // ✅ NEW: For booking payments
+    String? paymentType, // ✅ NEW: 'workshop', 'booking', or 'workshop_creation'
   }) {
     // Generate parameters
     final params = generatePaymentParams(
@@ -117,6 +119,7 @@ class PayFastService {
   }
 
   /// Create payment record in Firestore
+  /// ✅ FIXED: Uses correct collection based on payment type
   Future<String> createPaymentRecord({
     required String registrationId,
     required String workshopId,
@@ -124,11 +127,16 @@ class PayFastService {
     required double amount,
     required String userEmail,
     required String userName,
+    String? bookingId, // ✅ NEW: For booking payments
+    String paymentType = 'workshop', // ✅ NEW: 'workshop' or 'booking'
   }) async {
     try {
-      final paymentDoc = await _firestore.collection('workshop_payments').add({
-        'registrationId': registrationId,
-        'workshopId': workshopId,
+      // ✅ Use correct collection based on payment type
+      final collection = paymentType == 'booking'
+          ? 'booking_payments'
+          : 'workshop_payments';
+
+      final paymentData = {
         'userId': userId,
         'amount': amount,
         'currency': 'PKR', // ✅ Pakistani Rupee
@@ -138,9 +146,21 @@ class PayFastService {
         'userName': userName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
 
-      debugPrint('✅ Payment record created: ${paymentDoc.id}');
+      // Add type-specific fields
+      if (paymentType == 'booking' && bookingId != null) {
+        paymentData['bookingId'] = bookingId;
+      } else {
+        paymentData['registrationId'] = registrationId;
+        paymentData['workshopId'] = workshopId;
+      }
+
+      final paymentDoc = await _firestore
+          .collection(collection)
+          .add(paymentData);
+
+      debugPrint('✅ Payment record created in $collection: ${paymentDoc.id}');
       return paymentDoc.id;
     } catch (e) {
       debugPrint('❌ Error creating payment record: $e');

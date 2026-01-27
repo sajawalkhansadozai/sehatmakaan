@@ -9,6 +9,7 @@ import 'features/auth/screens/registration_page_new.dart';
 import 'features/auth/screens/agreement_page.dart';
 import 'features/auth/screens/verification_page.dart';
 import 'features/auth/screens/account_suspended_page.dart';
+
 import 'features/subscriptions/screens/packages_page.dart';
 import 'features/subscriptions/screens/dashboard_page.dart';
 import 'features/subscriptions/screens/monthly_dashboard_page.dart';
@@ -17,7 +18,6 @@ import 'features/auth/screens/settings_page.dart';
 import 'features/workshops/screens/user/workshops_page.dart';
 import 'features/workshops/screens/user/create_workshop_page.dart';
 import 'features/auth/screens/help_and_support_page.dart';
-import 'features/admin/screens/admin_login_page.dart';
 import 'features/admin/screens/admin_dashboard_page.dart';
 import 'features/bookings/screens/user/booking_workflow_page.dart';
 import 'features/workshops/screens/user/workshop_registration_page.dart';
@@ -183,7 +183,8 @@ class SehatMakaanApp extends StatelessWidget {
         );
 
       case '/admin-login':
-        return MaterialPageRoute(builder: (_) => const AdminLoginPage());
+        // Reuse the shared login flow for admins
+        return MaterialPageRoute(builder: (_) => const LoginPage());
 
       case '/admin-dashboard':
         debugPrint('🔍 Admin Dashboard Route - Raw args: $args');

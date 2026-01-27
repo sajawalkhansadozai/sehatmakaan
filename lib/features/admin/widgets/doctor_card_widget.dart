@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/admin_formatters.dart';
 import '../utils/admin_styles.dart';
 
@@ -140,7 +139,9 @@ class DoctorCardWidget extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Row(
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -173,7 +174,6 @@ class DoctorCardWidget extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 6),
                             // Last Active Badge
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -579,76 +579,6 @@ class DoctorCardWidget extends StatelessWidget {
                 ],
               ],
 
-              // GOD MODE: Activity Logs & Surveillance
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.purple.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.purple.shade200, width: 2),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.visibility,
-                          color: Colors.purple.shade700,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '\u26a1 GOD MODE: Surveillance',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.purple.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _buildActivityLog(doctor),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _showActivityDetails(doctor),
-                            icon: const Icon(Icons.timeline, size: 16),
-                            label: const Text(
-                              'View Full Activity',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.purple.shade700,
-                              side: BorderSide(color: Colors.purple.shade700),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _showShadowBanDialog(doctor),
-                            icon: const Icon(Icons.block, size: 16),
-                            label: const Text(
-                              'Shadow Ban',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.red.shade700,
-                              side: BorderSide(color: Colors.red.shade700),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
               // Action buttons based on status
               if (isPending) ...[
                 const SizedBox(height: 12),
@@ -764,86 +694,6 @@ class DoctorCardWidget extends StatelessWidget {
     );
   }
 
-  // ============================================================================
-  // GOD MODE: SURVEILLANCE METHODS
-  // ============================================================================
-
-  Widget _buildActivityLog(Map<String, dynamic> doctor) {
-    final lastLogin = doctor['lastLoginAt'];
-    final createdAt = doctor['createdAt'];
-    final stats = doctor['stats'] as Map<String, dynamic>?;
-    final totalBookings = stats?['totalBookings'] ?? 0;
-    final cancelledBookings = doctor['cancelledBookingsCount'] ?? 0;
-    final cancelRate = totalBookings > 0
-        ? (cancelledBookings / totalBookings * 100).toStringAsFixed(1)
-        : '0.0';
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildLogItem(
-            Icons.login,
-            'Last Login',
-            lastLogin != null
-                ? AdminFormatters.formatDateTime(lastLogin)
-                : 'Never',
-            lastLogin != null ? Colors.green : Colors.red,
-          ),
-          const SizedBox(height: 6),
-          _buildLogItem(
-            Icons.calendar_today,
-            'Member Since',
-            createdAt != null
-                ? AdminFormatters.formatDateLong(
-                    (createdAt as Timestamp).toDate(),
-                  )
-                : 'Unknown',
-            Colors.blue,
-          ),
-          const SizedBox(height: 6),
-          _buildLogItem(
-            Icons.cancel,
-            'Cancel Rate',
-            '$cancelRate% ($cancelledBookings of $totalBookings)',
-            double.parse(cancelRate) > 20 ? Colors.red : Colors.green,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogItem(IconData icon, String label, String value, Color color) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 6),
-        Text(
-          '$label: ',
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(fontSize: 11, color: color),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _showActivityDetails(Map<String, dynamic> doctor) {
-    // This would show a detailed activity log dialog
-    debugPrint('Show activity details for: ${doctor['id']}');
-  }
-
   Widget _buildDoctorInfoChip(IconData icon, String text, Color color) {
     return Row(
       children: [
@@ -920,7 +770,6 @@ class DoctorCardWidget extends StatelessWidget {
     );
   }
 
-  // Helper methods for Last Active badge
   Color _getActivityColor(Map<String, dynamic> doctor) {
     final lastLogin = doctor['lastLoginAt'];
     if (lastLogin == null) return Colors.grey;
@@ -930,11 +779,11 @@ class DoctorCardWidget extends StatelessWidget {
     final difference = now.difference(lastLoginDate);
 
     if (difference.inHours < 24) {
-      return Colors.green; // Active today
+      return Colors.green;
     } else if (difference.inDays < 7) {
-      return Colors.orange; // Active this week
+      return Colors.orange;
     } else {
-      return Colors.red; // Inactive
+      return Colors.red;
     }
   }
 
@@ -956,87 +805,6 @@ class DoctorCardWidget extends StatelessWidget {
       return '${(difference.inDays / 7).floor()}w ago';
     } else {
       return '${(difference.inDays / 30).floor()}mo ago';
-    }
-  }
-
-  void _showShadowBanDialog(Map<String, dynamic> doctor) async {
-    final context = NavigationService.navigatorKey.currentContext;
-    if (context == null) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.block, color: Colors.red.shade700),
-            const SizedBox(width: 8),
-            const Text('Shadow Ban User'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Shadow ban ${doctor['fullName']}?',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'Shadow ban = User can login but their actions are hidden/restricted without notification.',
-                style: TextStyle(fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Shadow Ban'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && context.mounted) {
-      final adminId = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
-      final doctorId = doctor['id'] as String;
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(doctorId)
-          .update({
-            'isShadowBanned': true,
-            'shadowBannedAt': FieldValue.serverTimestamp(),
-            'shadowBannedBy': adminId,
-          });
-
-      await FirebaseFirestore.instance.collection('admin_audit_log').add({
-        'adminId': adminId,
-        'action': 'shadow_ban',
-        'userId': doctorId,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${doctor['fullName']} has been shadow banned'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
     }
   }
 }

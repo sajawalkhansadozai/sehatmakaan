@@ -403,12 +403,7 @@ class AdminDataService {
   /// Get default system settings
   Map<String, dynamic> _getDefaultSettings() {
     return {
-      'isMaintenanceMode': false,
-      'maintenanceMessage':
-          'System is under maintenance. Please check back later.',
-      'globalCommission': 20.0, // 20% commission rate
       'bookingNoticePeriod': 24, // Hours before booking
-      'turnoverBuffer': 60, // Minutes for suite cleaning
       'minBookingDuration': 30, // Minutes
       'maxBookingDuration': 480, // 8 hours
       'lastUpdated': FieldValue.serverTimestamp(),

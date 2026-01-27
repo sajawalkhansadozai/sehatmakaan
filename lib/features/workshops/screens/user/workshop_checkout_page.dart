@@ -375,10 +375,9 @@ class _WorkshopCheckoutPageState extends State<WorkshopCheckoutPage> {
           );
         }
 
-        // Wait for payment callback (webhook will update registration status)
-        // For now, show a dialog asking user to confirm
+        // Listen for real-time registration status updates from webhook
         if (mounted) {
-          _showPaymentPendingDialog(registrationId, paymentId);
+          _listenForPaymentConfirmation(registrationId);
         }
       } else {
         throw 'Could not launch PayFast payment page';
@@ -399,42 +398,104 @@ class _WorkshopCheckoutPageState extends State<WorkshopCheckoutPage> {
     }
   }
 
-  void _showPaymentPendingDialog(String registrationId, String paymentId) {
+  /// Listen for registration status changes in real-time
+  /// When webhook updates status to 'confirmed', auto-show success and navigate
+  void _listenForPaymentConfirmation(String registrationId) {
+    // Show payment pending dialog
+    _showPaymentPendingDialog(registrationId);
+
+    // Listen to registration document for status changes
+    _firestore
+        .collection('workshop_registrations')
+        .doc(registrationId)
+        .snapshots()
+        .listen((snapshot) {
+          if (!mounted) return;
+
+          final data = snapshot.data();
+          if (data == null) return;
+
+          final status = data['status'] as String?;
+
+          // When webhook confirms payment, show success and navigate
+          if (status == 'confirmed') {
+            debugPrint('✅ Payment confirmed for registration: $registrationId');
+
+            // Close the pending dialog
+            Navigator.pop(context);
+
+            // Show success message
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text(
+                  '✅ Payment successful! You have joined the workshop.',
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+
+            // Auto-navigate to workshops page after brief delay
+            Future.delayed(const Duration(milliseconds: 800), () {
+              if (mounted) {
+                Navigator.pop(context); // Close checkout page
+              }
+            });
+          }
+        });
+  }
+
+  void _showPaymentPendingDialog(String registrationId) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.payment, color: Colors.blue),
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
             SizedBox(width: 12),
             Text('Payment Processing'),
           ],
         ),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Your payment is being processed. Please wait for confirmation.',
+            const Text(
+              'Your payment is being processed at PayFast. Please wait for confirmation.',
               style: TextStyle(fontSize: 15),
             ),
-            SizedBox(height: 12),
-            Text(
-              'You will be redirected once payment is confirmed.',
+            const SizedBox(height: 12),
+            const Text(
+              'You will be automatically redirected once payment is confirmed by the webhook.',
               style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info, size: 16, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Do not close this dialog or go back.',
+                      style: TextStyle(fontSize: 12, color: Colors.blue),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text('Go Back'),
-          ),
-        ],
       ),
     );
   }

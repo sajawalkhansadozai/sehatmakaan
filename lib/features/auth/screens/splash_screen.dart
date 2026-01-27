@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import '../services/user_status_service.dart';
 import '../../../shared/fcm_service.dart';
+import '../../../services/session_storage_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -58,124 +59,143 @@ class _SplashScreenState extends State<SplashScreen>
     final prefs = await SharedPreferences.getInstance();
     final loginStatus = prefs.getString('login_status');
     final registrationStatus = prefs.getString('registration_status');
-    final userType = prefs.getString('user_type');
 
     // Priority 1: Check if user is already logged in
     if (loginStatus == 'logged_in') {
-      // Route based on user type
-      if (userType == 'admin') {
-        Navigator.of(context).pushReplacementNamed('/admin-dashboard');
-      } else {
-        // Validate current user status from Firestore before allowing access
-        final userId = prefs.getString('user_id') ?? '';
+      // Validate current user status from Firestore before allowing access (BOTH ADMIN & USER)
+      final userId = prefs.getString('user_id') ?? '';
 
-        if (userId.isNotEmpty) {
-          try {
-            final userDoc = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(userId)
-                .get();
+      if (userId.isNotEmpty) {
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .get();
 
-            if (!userDoc.exists) {
-              // User deleted - clear session and show landing
-              await prefs.clear();
-              Navigator.of(context).pushReplacementNamed('/landing');
-              return;
-            }
+          if (!userDoc.exists) {
+            // ❌ User deleted from Firebase - clear local session and show landing
+            debugPrint(
+              '🚨 Firebase user deleted but local session still exists',
+            );
+            await prefs.clear();
+            final sessionService = SessionStorageService();
+            await sessionService.clearUserSession();
+            await sessionService.clearAdminSession();
+            await FirebaseAuth.instance.signOut();
+            Navigator.of(context).pushReplacementNamed('/landing');
+            return;
+          }
 
-            final userData = userDoc.data()!;
-            final status = userData['status'] as String?;
-            final isActive = userData['isActive'] as bool? ?? false;
+          final userData = userDoc.data()!;
+          final status = userData['status'] as String?;
+          final isActive = userData['isActive'] as bool? ?? false;
+          final userTypeValue = userData['userType'] as String? ?? 'doctor';
 
-            debugPrint('🔍 Splash Check - User: $userId');
-            debugPrint('🔍 Splash Check - Status: $status');
-            debugPrint('🔍 Splash Check - isActive: $isActive');
+          debugPrint('🔍 Splash Check - User: $userId');
+          debugPrint('🔍 Splash Check - Status: $status');
+          debugPrint('🔍 Splash Check - isActive: $isActive');
+          debugPrint('🔍 Splash Check - UserType: $userTypeValue');
 
-            // ✅ ROBUST REDIRECTION: Check status immediately
+          // ✅ IMPORTANT: Admins don't need approval, only regular users do
+          if (status == 'suspended') {
+            debugPrint('⛔ SUSPENDED - Redirecting to suspension page');
+            await prefs.clear();
+            await FirebaseAuth.instance.signOut();
+            Navigator.of(context).pushReplacementNamed(
+              '/account-suspended',
+              arguments:
+                  userData['suspensionReason'] ??
+                  'Terms and Conditions Violation',
+            );
+            return;
+          }
+
+          if (userTypeValue != 'admin' && status == 'pending') {
+            debugPrint('⏳ PENDING - Redirecting to verification page');
+            await prefs.clear();
+            await FirebaseAuth.instance.signOut();
+            Navigator.of(context).pushReplacementNamed('/verification');
+            return;
+          }
+
+          if (status == 'rejected' || !isActive) {
+            debugPrint('⛔ Account blocked - Redirecting to landing page');
+            await prefs.clear();
+            await FirebaseAuth.instance.signOut();
+
+            String reason = '';
             if (status == 'suspended') {
-              debugPrint('⛔ SUSPENDED - Redirecting to suspension page');
-              await prefs.clear();
-              await FirebaseAuth.instance.signOut();
-              Navigator.of(context).pushReplacementNamed(
-                '/account-suspended',
-                arguments:
-                    userData['suspensionReason'] ??
-                    'Terms and Conditions Violation',
+              reason = 'Terms and Conditions Violation';
+            } else if (status == 'rejected') {
+              reason =
+                  'Account Rejected: ${userData['rejectionReason'] ?? 'Contact support'}';
+            } else {
+              reason = 'Account Deactivated - Contact Admin';
+            }
+
+            // Redirect to suspension page
+            if (mounted) {
+              debugPrint(
+                '🚀 Navigating to /account-suspended with reason: $reason',
               );
-              return;
+              Navigator.of(
+                context,
+              ).pushReplacementNamed('/account-suspended', arguments: reason);
             }
+            return;
+          }
 
-            if (status == 'pending') {
-              debugPrint('⏳ PENDING - Redirecting to verification page');
-              await prefs.clear();
-              await FirebaseAuth.instance.signOut();
-              Navigator.of(context).pushReplacementNamed('/verification');
-              return;
-            }
+          debugPrint('✅ Account valid - Proceeding to appropriate dashboard');
 
-            if (status == 'rejected' || !isActive) {
-              debugPrint('⛔ Account blocked - Redirecting to landing page');
-              await prefs.clear();
-              await FirebaseAuth.instance.signOut();
+          // Start real-time status monitoring
+          await UserStatusService.startMonitoring(context, userId);
+          debugPrint('✅ User status monitoring started from splash');
 
-              String reason = '';
-              if (status == 'suspended') {
-                reason = 'Terms and Conditions Violation';
-              } else if (status == 'rejected') {
-                reason =
-                    'Account Rejected: ${userData['rejectionReason'] ?? 'Contact support'}';
-              } else {
-                reason = 'Account Deactivated - Contact Admin';
-              }
+          // Initialize FCM for push notifications
+          final fcmService = FCMService();
+          await fcmService.initialize(userId);
+          debugPrint('✅ FCM initialized in splash screen for user: $userId');
 
-              // Redirect to suspension page
-              if (mounted) {
-                debugPrint(
-                  '🚀 Navigating to /account-suspended with reason: $reason',
-                );
-                Navigator.of(
-                  context,
-                ).pushReplacementNamed('/account-suspended', arguments: reason);
-              }
-              return;
-            }
+          // Account is valid - route to appropriate dashboard based on user type
+          final userEmail = prefs.getString('user_email') ?? '';
+          final fullName = prefs.getString('user_full_name') ?? '';
 
-            debugPrint('✅ Account valid - Proceeding to dashboard');
-
-            // Start real-time status monitoring
-            await UserStatusService.startMonitoring(context, userId);
-            debugPrint('✅ User status monitoring started from splash');
-
-            // Initialize FCM for push notifications
-            final fcmService = FCMService();
-            await fcmService.initialize(userId);
-            debugPrint('✅ FCM initialized in splash screen for user: $userId');
-
-            // Account is valid - proceed to dashboard
-            final userEmail = prefs.getString('user_email') ?? '';
-            final fullName = prefs.getString('user_full_name') ?? '';
-
+          if (userTypeValue == 'admin') {
+            // Route to admin dashboard
+            Navigator.of(context).pushReplacementNamed(
+              '/admin-dashboard',
+              arguments: {
+                'adminSession': {
+                  'id': userId,
+                  'email': userEmail,
+                  'fullName': fullName,
+                  'userType': userTypeValue,
+                },
+              },
+            );
+          } else {
+            // Route to user dashboard
             Navigator.of(context).pushReplacementNamed(
               '/dashboard',
               arguments: {
                 'id': userId,
                 'email': userEmail,
                 'fullName': fullName,
-                'userType': userType,
+                'userType': userTypeValue,
                 'status': status,
                 'isActive': isActive,
               },
             );
-          } catch (e) {
-            debugPrint('Error validating session: $e');
-            // On error, clear session and show landing
-            await prefs.clear();
-            Navigator.of(context).pushReplacementNamed('/landing');
           }
-        } else {
-          // No user ID - show landing
+        } catch (e) {
+          debugPrint('Error validating session: $e');
+          // On error, clear session and show landing
+          await prefs.clear();
           Navigator.of(context).pushReplacementNamed('/landing');
         }
+      } else {
+        // No user ID - show landing
+        Navigator.of(context).pushReplacementNamed('/landing');
       }
     }
     // Priority 2: Check if registration is pending approval

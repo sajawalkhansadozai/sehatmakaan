@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:sehat_makaan_flutter/features/admin/utils/responsive_helper.dart';
 import 'package:sehat_makaan_flutter/features/workshops/models/workshop_creator_model.dart';
 import 'package:sehat_makaan_flutter/features/workshops/models/workshop_creator_request_model.dart';
 import 'package:sehat_makaan_flutter/features/workshops/services/workshop_creator_service.dart';
@@ -392,96 +393,145 @@ class _WorkshopCreatorsTabState extends State<WorkshopCreatorsTab>
   }
 
   Widget _buildCreatorsList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _creators.length,
-      itemBuilder: (context, index) {
-        final creator = _creators[index];
-        final workshopCount = _workshopCounts[creator.id] ?? 0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final spacing = ResponsiveHelper.getSpacing(context);
+        final availableWidth = constraints.maxWidth;
+        final columnCount = ResponsiveHelper.getColumnCountForWidth(
+          availableWidth,
+          minTileWidth: 360,
+          maxColumns: 3,
+        );
+        final itemWidth =
+            (availableWidth - (spacing * (columnCount - 1))) / columnCount;
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(16),
-            leading: CircleAvatar(
-              backgroundColor: creator.isActive
-                  ? const Color(0xFF006876)
-                  : Colors.grey,
-              child: Text(
-                creator.fullName.isNotEmpty
-                    ? creator.fullName[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    creator.fullName,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (!creator.isActive)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: _creators.map((creator) {
+              final workshopCount = _workshopCounts[creator.id] ?? 0;
+
+              return SizedBox(
+                width: itemWidth,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: creator.isActive
+                                  ? const Color(0xFF006876)
+                                  : Colors.grey,
+                              child: Text(
+                                creator.fullName.isNotEmpty
+                                    ? creator.fullName[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          creator.fullName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (!creator.isActive)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.withValues(
+                                              alpha: 0.1,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Inactive',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.red,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    creator.email,
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                  ),
+                                  if (creator.specialty != null &&
+                                      creator.specialty!.isNotEmpty)
+                                    Text(
+                                      'Specialty: ${creator.specialty}',
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '$workshopCount workshop${workshopCount != 1 ? 's' : ''} created',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF006876),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: IconButton(
+                            onPressed: () => _toggleCreatorStatus(
+                              creator,
+                              !creator.isActive,
+                            ),
+                            icon: Icon(
+                              creator.isActive
+                                  ? Icons.block
+                                  : Icons.check_circle,
+                              color: creator.isActive
+                                  ? Colors.red
+                                  : Colors.green,
+                            ),
+                            tooltip: creator.isActive
+                                ? 'Deactivate'
+                                : 'Reactivate',
+                          ),
+                        ),
+                      ],
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'Inactive',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.red,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text(
-                  creator.email,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
-                if (creator.specialty != null && creator.specialty!.isNotEmpty)
-                  Text(
-                    'Specialty: ${creator.specialty}',
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
-                const SizedBox(height: 4),
-                Text(
-                  '$workshopCount workshop${workshopCount != 1 ? 's' : ''} created',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF006876),
                   ),
                 ),
-              ],
-            ),
-            trailing: IconButton(
-              onPressed: () => _toggleCreatorStatus(creator, !creator.isActive),
-              icon: Icon(
-                creator.isActive ? Icons.block : Icons.check_circle,
-                color: creator.isActive ? Colors.red : Colors.green,
-              ),
-              tooltip: creator.isActive ? 'Deactivate' : 'Reactivate',
-            ),
+              );
+            }).toList(),
           ),
         );
       },
@@ -530,18 +580,32 @@ class _WorkshopCreatorsTabState extends State<WorkshopCreatorsTab>
           );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: requests.length,
-          itemBuilder: (context, index) {
-            final request = requests[index];
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final spacing = ResponsiveHelper.getSpacing(context);
+            final availableWidth = constraints.maxWidth;
+            final columnCount = ResponsiveHelper.getColumnCountForWidth(
+              availableWidth,
+              minTileWidth: 380,
+              maxColumns: 2,
+            );
+            final itemWidth =
+                (availableWidth - (spacing * (columnCount - 1))) / columnCount;
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
+                children: requests.map((request) {
+                  return SizedBox(
+                    width: itemWidth,
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                     Row(
                       children: [
                         CircleAvatar(
@@ -720,8 +784,12 @@ class _WorkshopCreatorsTabState extends State<WorkshopCreatorsTab>
                         ),
                       ],
                     ),
-                  ],
-                ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             );
           },

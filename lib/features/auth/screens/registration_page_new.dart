@@ -5,28 +5,70 @@ import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
 import 'package:sehat_makaan_flutter/data/providers/registration_provider.dart';
 import 'package:sehat_makaan_flutter/core/constants/constants.dart';
 
-class RegistrationPage extends StatelessWidget {
+// ✅ CRITICAL FIX: Convert to StatefulWidget to prevent provider recreation
+class RegistrationPage extends StatefulWidget {
   const RegistrationPage({super.key});
 
   @override
+  State<RegistrationPage> createState() => _RegistrationPageState();
+}
+
+class _RegistrationPageState extends State<RegistrationPage> {
+  // ✅ Provider instance persists across rebuilds (won't recreate on keyboard open)
+  late final RegistrationProvider _registrationProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    _registrationProvider = RegistrationProvider();
+    debugPrint('✅ RegistrationProvider initialized once in initState');
+  }
+
+  @override
+  void dispose() {
+    _registrationProvider.dispose(); // ✅ Proper cleanup to avoid memory leaks
+    debugPrint('✅ RegistrationProvider disposed');
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => RegistrationProvider(),
-      child: const _RegistrationPageContent(),
+    // ✅ Use .value() with existing instance instead of create:
+    // This prevents rebuilds from creating new provider instances
+    return ChangeNotifierProvider.value(
+      value: _registrationProvider,
+      child: _RegistrationPageContent(provider: _registrationProvider),
     );
   }
 }
 
-class _RegistrationPageContent extends StatelessWidget {
-  const _RegistrationPageContent();
+class _RegistrationPageContent extends StatefulWidget {
+  final RegistrationProvider provider;
+
+  const _RegistrationPageContent({required this.provider});
+
+  @override
+  State<_RegistrationPageContent> createState() =>
+      _RegistrationPageContentState();
+}
+
+class _RegistrationPageContentState extends State<_RegistrationPageContent> {
+  // ✅ FormKey persists in State, won't recreate on keyboard open
+  late final GlobalKey<FormState> formKey;
+
+  @override
+  void initState() {
+    super.initState();
+    formKey = GlobalKey<FormState>();
+    debugPrint('✅ FormKey initialized in State');
+  }
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<RegistrationProvider>(context, listen: false);
-    final formKey = GlobalKey<FormState>();
-
     return Scaffold(
       backgroundColor: const Color(0xFFE6F7F9),
+      // ✅ Optional: Prevent scaffold resizing on keyboard (test if needed)
+      // resizeToAvoidBottomInset: false,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 1,
@@ -53,7 +95,7 @@ class _RegistrationPageContent extends StatelessWidget {
               SizedBox(
                 height: ResponsiveHelper.getResponsiveSpacing(context) * 1.5,
               ),
-              _buildFormContainer(context, provider, formKey),
+              _buildFormContainer(context, widget.provider, formKey),
             ],
           ),
         ),
@@ -154,11 +196,16 @@ class _RegistrationPageContent extends StatelessWidget {
 }
 
 // Full Name Field
-class _FullNameField extends StatelessWidget {
+class _FullNameField extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _FullNameField({required this.provider});
 
+  @override
+  State<_FullNameField> createState() => _FullNameFieldState();
+}
+
+class _FullNameFieldState extends State<_FullNameField> {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -174,7 +221,7 @@ class _FullNameField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         TextFormField(
-          controller: provider.fullNameController,
+          controller: widget.provider.fullNameController,
           decoration: _inputDecoration('Enter your full name'),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
@@ -189,9 +236,33 @@ class _FullNameField extends StatelessWidget {
 }
 
 // Email Field with OTP Verification
-class _EmailFieldWithOtp extends StatelessWidget {
+class _EmailFieldWithOtp extends StatefulWidget {
   final RegistrationProvider provider;
   const _EmailFieldWithOtp({required this.provider});
+
+  @override
+  State<_EmailFieldWithOtp> createState() => _EmailFieldWithOtpState();
+}
+
+class _EmailFieldWithOtpState extends State<_EmailFieldWithOtp> {
+  late FocusNode emailFocusNode;
+  late FocusNode otpFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    // ✅ Initialize FocusNodes in initState - they persist across rebuilds
+    emailFocusNode = FocusNode();
+    otpFocusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    // ✅ Dispose FocusNodes to prevent memory leaks
+    emailFocusNode.dispose();
+    otpFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -212,14 +283,29 @@ class _EmailFieldWithOtp extends StatelessWidget {
             Expanded(
               flex: 3,
               child: TextFormField(
-                controller: provider.emailController,
+                focusNode: emailFocusNode,
+                controller: widget.provider.emailController,
                 keyboardType: TextInputType.emailAddress,
-                enabled: !provider.isEmailVerified,
+                enabled: context.select<RegistrationProvider, bool>(
+                  (p) => !p.isEmailVerified,
+                ),
+                textInputAction: TextInputAction.next,
                 decoration: _inputDecoration('Enter your email'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Email is required';
+                  }
+                  final emailRegex = RegExp(
+                    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+                  );
+                  if (!emailRegex.hasMatch(value.trim())) {
+                    return 'Enter a valid email';
+                  }
+                  return null;
+                },
               ),
             ),
             const SizedBox(width: 8),
-            // ✅ Only the button rebuilds with the timer
             Selector<RegistrationProvider, int>(
               selector: (_, p) => p.resendCountdown,
               builder: (context, countdown, _) {
@@ -227,12 +313,12 @@ class _EmailFieldWithOtp extends StatelessWidget {
                   width: 100,
                   child: ElevatedButton(
                     onPressed:
-                        (provider.isEmailVerified ||
-                            provider.isSendingEmailOtp ||
+                        (widget.provider.isEmailVerified ||
+                            widget.provider.isSendingEmailOtp ||
                             countdown > 0)
                         ? null
                         : () async {
-                            final error = await provider.sendEmailOtp();
+                            final error = await widget.provider.sendEmailOtp();
                             if (context.mounted) {
                               if (error != null) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -248,6 +334,13 @@ class _EmailFieldWithOtp extends StatelessWidget {
                                     backgroundColor: Colors.green,
                                   ),
                                 );
+                                // ✅ Auto-focus OTP field after sending OTP
+                                Future.delayed(
+                                  const Duration(milliseconds: 500),
+                                  () {
+                                    otpFocusNode.requestFocus();
+                                  },
+                                );
                               }
                             }
                           },
@@ -259,7 +352,7 @@ class _EmailFieldWithOtp extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: provider.isSendingEmailOtp
+                    child: widget.provider.isSendingEmailOtp
                         ? const SizedBox(
                             width: 16,
                             height: 16,
@@ -269,7 +362,7 @@ class _EmailFieldWithOtp extends StatelessWidget {
                             ),
                           )
                         : Text(
-                            provider.isEmailVerified
+                            widget.provider.isEmailVerified
                                 ? 'Verified'
                                 : (countdown > 0 ? '${countdown}s' : 'Verify'),
                             style: const TextStyle(fontSize: 12),
@@ -280,7 +373,6 @@ class _EmailFieldWithOtp extends StatelessWidget {
             ),
           ],
         ),
-        // ✅ OTP field visibility logic
         Selector<RegistrationProvider, bool>(
           selector: (_, p) => p.isEmailVerified,
           builder: (context, isVerified, _) {
@@ -293,31 +385,29 @@ class _EmailFieldWithOtp extends StatelessWidget {
                   children: [
                     Expanded(
                       child: TextFormField(
-                        key: const ValueKey(
-                          'otp_field_stable',
-                        ), // ✅ Stable identity
-                        controller: provider.emailOtpController,
+                        focusNode: otpFocusNode,
+                        controller: widget.provider.emailOtpController,
                         keyboardType: TextInputType.number,
-                        autofocus: true,
+                        autofocus: false,
+                        textInputAction: TextInputAction.done,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                           LengthLimitingTextInputFormatter(6),
                         ],
                         decoration: _inputDecoration('Enter 6-digit OTP'),
-                        // ❌ REMOVED markNeedsBuild() to stop blinking
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // ✅ This listens to typing without rebuilding the whole field
                     ValueListenableBuilder<TextEditingValue>(
-                      valueListenable: provider.emailOtpController,
+                      valueListenable: widget.provider.emailOtpController,
                       builder: (context, value, _) {
                         return SizedBox(
                           width: 100,
                           child: ElevatedButton(
                             onPressed: value.text.length == 6
                                 ? () {
-                                    final error = provider.verifyEmailOtp();
+                                    final error = widget.provider
+                                        .verifyEmailOtp();
                                     if (error != null) {
                                       ScaffoldMessenger.of(
                                         context,
@@ -337,6 +427,13 @@ class _EmailFieldWithOtp extends StatelessWidget {
                                           ),
                                           backgroundColor: Colors.green,
                                         ),
+                                      );
+                                      // ✅ Auto-focus phone field after email verification
+                                      Future.delayed(
+                                        const Duration(milliseconds: 500),
+                                        () {
+                                          _PhoneFieldWithOtpState.focusPhoneField();
+                                        },
                                       );
                                     }
                                   }
@@ -369,10 +466,45 @@ class _EmailFieldWithOtp extends StatelessWidget {
 }
 
 // Phone Field with OTP Verification
-class _PhoneFieldWithOtp extends StatelessWidget {
+class _PhoneFieldWithOtp extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _PhoneFieldWithOtp({required this.provider});
+
+  @override
+  State<_PhoneFieldWithOtp> createState() => _PhoneFieldWithOtpState();
+}
+
+class _PhoneFieldWithOtpState extends State<_PhoneFieldWithOtp> {
+  late FocusNode phoneFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    // ✅ Initialize FocusNode in initState - persists across rebuilds
+    phoneFocusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    // ✅ Dispose FocusNode to prevent memory leaks
+    phoneFocusNode.dispose();
+    super.dispose();
+  }
+
+  // ✅ Static instance to access from other widgets
+  static _PhoneFieldWithOtpState? _instance;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _instance = this;
+  }
+
+  // ✅ Public static method to focus phone field from anywhere
+  static void focusPhoneField() {
+    _instance?.phoneFocusNode.requestFocus();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -393,11 +525,18 @@ class _PhoneFieldWithOtp extends StatelessWidget {
             Expanded(
               flex: 3,
               child: TextFormField(
-                controller: provider.phoneController,
+                focusNode: phoneFocusNode,
+                controller: widget.provider.phoneController,
                 keyboardType: TextInputType.phone,
-                enabled: !provider.isPhoneVerified,
+                enabled: context.select<RegistrationProvider, bool>(
+                  (p) => !p.isPhoneVerified,
+                ),
+                textInputAction: TextInputAction.next,
                 decoration: _inputDecoration('+92 300 1234567').copyWith(
-                  suffixIcon: provider.isPhoneVerified
+                  suffixIcon:
+                      context.select<RegistrationProvider, bool>(
+                        (p) => p.isPhoneVerified,
+                      )
                       ? const Icon(Icons.check_circle, color: Colors.green)
                       : null,
                 ),
@@ -422,10 +561,15 @@ class _PhoneFieldWithOtp extends StatelessWidget {
 }
 
 // Other fields remain similar but use provider
-class _PasswordField extends StatelessWidget {
+class _PasswordField extends StatefulWidget {
   final RegistrationProvider provider;
   const _PasswordField({required this.provider});
 
+  @override
+  State<_PasswordField> createState() => _PasswordFieldState();
+}
+
+class _PasswordFieldState extends State<_PasswordField> {
   @override
   Widget build(BuildContext context) {
     return Selector<RegistrationProvider, bool>(
@@ -444,7 +588,7 @@ class _PasswordField extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             TextFormField(
-              controller: provider.passwordController,
+              controller: widget.provider.passwordController,
               obscureText: obscure, // ✅ Updates dynamically
               decoration: _inputDecoration('Minimum 6 characters').copyWith(
                 suffixIcon: IconButton(
@@ -452,7 +596,7 @@ class _PasswordField extends StatelessWidget {
                     obscure ? Icons.visibility_off : Icons.visibility,
                     color: const Color(0xFF006876),
                   ),
-                  onPressed: () => provider
+                  onPressed: () => widget.provider
                       .togglePasswordVisibility(), // ✅ Now triggers rebuild
                 ),
               ),
@@ -473,10 +617,15 @@ class _PasswordField extends StatelessWidget {
   }
 }
 
-class _ConfirmPasswordField extends StatelessWidget {
+class _ConfirmPasswordField extends StatefulWidget {
   final RegistrationProvider provider;
   const _ConfirmPasswordField({required this.provider});
 
+  @override
+  State<_ConfirmPasswordField> createState() => _ConfirmPasswordFieldState();
+}
+
+class _ConfirmPasswordFieldState extends State<_ConfirmPasswordField> {
   @override
   Widget build(BuildContext context) {
     return Selector<RegistrationProvider, bool>(
@@ -496,7 +645,7 @@ class _ConfirmPasswordField extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             TextFormField(
-              controller: provider.confirmPasswordController,
+              controller: widget.provider.confirmPasswordController,
               obscureText: obscure, // ✅ Updates dynamically
               decoration: _inputDecoration('Re-enter password').copyWith(
                 suffixIcon: IconButton(
@@ -504,14 +653,15 @@ class _ConfirmPasswordField extends StatelessWidget {
                     obscure ? Icons.visibility_off : Icons.visibility,
                     color: const Color(0xFF006876),
                   ),
-                  onPressed: () => provider.toggleConfirmPasswordVisibility(),
+                  onPressed: () =>
+                      widget.provider.toggleConfirmPasswordVisibility(),
                 ),
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) {
                   return 'Please confirm password';
                 }
-                if (value != provider.passwordController.text) {
+                if (value != widget.provider.passwordController.text) {
                   return 'Passwords do not match';
                 }
                 return null;
@@ -524,11 +674,16 @@ class _ConfirmPasswordField extends StatelessWidget {
   }
 }
 
-class _AgeField extends StatelessWidget {
+class _AgeField extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _AgeField({required this.provider});
 
+  @override
+  State<_AgeField> createState() => _AgeFieldState();
+}
+
+class _AgeFieldState extends State<_AgeField> {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -544,7 +699,7 @@ class _AgeField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         TextFormField(
-          controller: provider.ageController,
+          controller: widget.provider.ageController,
           keyboardType: TextInputType.number,
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           decoration: _inputDecoration('Enter your age'),
@@ -564,11 +719,16 @@ class _AgeField extends StatelessWidget {
   }
 }
 
-class _GenderField extends StatelessWidget {
+class _GenderField extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _GenderField({required this.provider});
 
+  @override
+  State<_GenderField> createState() => _GenderFieldState();
+}
+
+class _GenderFieldState extends State<_GenderField> {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -584,7 +744,7 @@ class _GenderField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: provider.selectedGender,
+          initialValue: widget.provider.selectedGender,
           decoration: _inputDecoration('Select Gender'),
           items: AppConstants.genders.map((gender) {
             return DropdownMenuItem(
@@ -592,7 +752,7 @@ class _GenderField extends StatelessWidget {
               child: Text(gender['label']!),
             );
           }).toList(),
-          onChanged: provider.setGender,
+          onChanged: widget.provider.setGender,
           validator: (value) {
             if (value == null || value.isEmpty) {
               return 'Gender is required';
@@ -605,11 +765,16 @@ class _GenderField extends StatelessWidget {
   }
 }
 
-class _YearsExpField extends StatelessWidget {
+class _YearsExpField extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _YearsExpField({required this.provider});
 
+  @override
+  State<_YearsExpField> createState() => _YearsExpFieldState();
+}
+
+class _YearsExpFieldState extends State<_YearsExpField> {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -625,7 +790,7 @@ class _YearsExpField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         TextFormField(
-          controller: provider.yearsExpController,
+          controller: widget.provider.yearsExpController,
           keyboardType: TextInputType.number,
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           decoration: _inputDecoration('Enter years'),
@@ -645,11 +810,16 @@ class _YearsExpField extends StatelessWidget {
   }
 }
 
-class _SpecialtyField extends StatelessWidget {
+class _SpecialtyField extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _SpecialtyField({required this.provider});
 
+  @override
+  State<_SpecialtyField> createState() => _SpecialtyFieldState();
+}
+
+class _SpecialtyFieldState extends State<_SpecialtyField> {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -665,7 +835,7 @@ class _SpecialtyField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: provider.selectedSpecialty,
+          initialValue: widget.provider.selectedSpecialty,
           decoration: _inputDecoration('Select Your Specialty'),
           items: AppConstants.specialties.map((specialty) {
             return DropdownMenuItem(
@@ -673,7 +843,7 @@ class _SpecialtyField extends StatelessWidget {
               child: Text(specialty['label']!),
             );
           }).toList(),
-          onChanged: provider.setSpecialty,
+          onChanged: widget.provider.setSpecialty,
           validator: (value) {
             if (value == null || value.isEmpty) {
               return 'Specialty is required';
@@ -686,11 +856,16 @@ class _SpecialtyField extends StatelessWidget {
   }
 }
 
-class _PMDCField extends StatelessWidget {
+class _PMDCField extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _PMDCField({required this.provider});
 
+  @override
+  State<_PMDCField> createState() => _PMDCFieldState();
+}
+
+class _PMDCFieldState extends State<_PMDCField> {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -706,7 +881,7 @@ class _PMDCField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         TextFormField(
-          controller: provider.pmdcController,
+          controller: widget.provider.pmdcController,
           decoration: _inputDecoration('PMDC-12345'),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
@@ -720,11 +895,16 @@ class _PMDCField extends StatelessWidget {
   }
 }
 
-class _CNICField extends StatelessWidget {
+class _CNICField extends StatefulWidget {
   final RegistrationProvider provider;
 
   const _CNICField({required this.provider});
 
+  @override
+  State<_CNICField> createState() => _CNICFieldState();
+}
+
+class _CNICFieldState extends State<_CNICField> {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -740,7 +920,7 @@ class _CNICField extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         TextFormField(
-          controller: provider.cnicController,
+          controller: widget.provider.cnicController,
           keyboardType: TextInputType.number,
           maxLength: 15, // 13 digits + 2 dashes
           inputFormatters: [
@@ -766,19 +946,29 @@ class _CNICField extends StatelessWidget {
   }
 }
 
-class _SubmitButton extends StatelessWidget {
+class _SubmitButton extends StatefulWidget {
   final GlobalKey<FormState> formKey;
   final RegistrationProvider provider;
 
   const _SubmitButton({required this.formKey, required this.provider});
 
   @override
+  State<_SubmitButton> createState() => _SubmitButtonState();
+}
+
+class _SubmitButtonState extends State<_SubmitButton> {
+  @override
   Widget build(BuildContext context) {
+    // ✅ Listen ONLY to isLoading state change
+    final isLoading = context.select<RegistrationProvider, bool>(
+      (p) => p.isLoading,
+    );
+
     return ElevatedButton(
-      onPressed: provider.isLoading
+      onPressed: isLoading
           ? null
           : () async {
-              if (!formKey.currentState!.validate()) {
+              if (!widget.formKey.currentState!.validate()) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Please fix all errors before submitting'),
@@ -788,7 +978,7 @@ class _SubmitButton extends StatelessWidget {
                 return;
               }
 
-              final error = await provider.submitRegistration();
+              final error = await widget.provider.submitRegistration();
               if (context.mounted) {
                 if (error != null) {
                   // Check if account is suspended
@@ -830,7 +1020,7 @@ class _SubmitButton extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         elevation: 2,
       ),
-      child: provider.isLoading
+      child: isLoading
           ? const SizedBox(
               height: 20,
               width: 20,
@@ -848,43 +1038,54 @@ class _SubmitButton extends StatelessWidget {
 }
 
 // Input decoration helper
+// ✅ Constant InputDecoration styling to avoid rebuilds
+const _standardBorderRadius = BorderRadius.all(Radius.circular(8));
+const _standardContentPadding = EdgeInsets.symmetric(
+  horizontal: 16,
+  vertical: 16,
+);
+const _fillColor = Color(0xFFE6F7F9);
+const _disabledFillColor = Color(0xFFE0E0E0);
+const _primaryColor = Color(0xFFFF6B35);
+const _errorColor = Colors.red;
+
 InputDecoration _inputDecoration(
   String hint, {
   bool hasError = false,
   bool isDisabled = false,
 }) {
+  // ✅ Reuse common borders to reduce object creation
+  final errorBorder = OutlineInputBorder(
+    borderRadius: _standardBorderRadius,
+    borderSide: const BorderSide(color: _errorColor, width: 1),
+  );
+
+  final normalBorder = const OutlineInputBorder(
+    borderRadius: _standardBorderRadius,
+    borderSide: BorderSide.none,
+  );
+
+  final focusedBorder = OutlineInputBorder(
+    borderRadius: _standardBorderRadius,
+    borderSide: BorderSide(
+      color: hasError ? _errorColor : _primaryColor,
+      width: 2,
+    ),
+  );
+
   return InputDecoration(
     hintText: hint,
     filled: true,
-    fillColor: isDisabled ? const Color(0xFFE0E0E0) : const Color(0xFFE6F7F9),
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: hasError
-          ? const BorderSide(color: Colors.red, width: 1)
-          : BorderSide.none,
-    ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: hasError
-          ? const BorderSide(color: Colors.red, width: 1)
-          : BorderSide.none,
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: BorderSide(
-        color: hasError ? Colors.red : const Color(0xFFFF6B35),
-        width: 2,
-      ),
-    ),
-    errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Colors.red, width: 1),
-    ),
+    fillColor: isDisabled ? _disabledFillColor : _fillColor,
+    border: hasError ? errorBorder : normalBorder,
+    enabledBorder: hasError ? errorBorder : normalBorder,
+    focusedBorder: focusedBorder,
+    errorBorder: errorBorder,
     focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Colors.red, width: 2),
+      borderRadius: _standardBorderRadius,
+      borderSide: const BorderSide(color: _errorColor, width: 2),
     ),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    contentPadding: _standardContentPadding,
   );
 }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:sehat_makaan_flutter/features/admin/utils/responsive_helper.dart';
 import '../helpers/email_helper.dart';
 
 class MarketingTab extends StatefulWidget {
@@ -465,26 +466,41 @@ class _MarketingTabState extends State<MarketingTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Statistics Cards
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatCard(
-                            'Total Doctors',
-                            _totalUsers.toString(),
-                            Icons.people,
-                            Colors.blue,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildStatCard(
-                            'Marketing Enabled',
-                            _marketingEnabledUsers.toString(),
-                            Icons.mark_email_read,
-                            Colors.green,
-                          ),
-                        ),
-                      ],
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final spacing = ResponsiveHelper.getSpacing(context);
+                        final availableWidth = constraints.maxWidth;
+                        final columnCount =
+                            ResponsiveHelper.getColumnCountForWidth(
+                              availableWidth,
+                              minTileWidth: 260,
+                              maxColumns: 3,
+                            );
+                        final itemWidth =
+                            (availableWidth - (spacing * (columnCount - 1))) /
+                            columnCount;
+
+                        return Wrap(
+                          spacing: spacing,
+                          runSpacing: spacing,
+                          children: [
+                            _buildStatCard(
+                              'Total Doctors',
+                              _totalUsers.toString(),
+                              Icons.people,
+                              Colors.blue,
+                              width: itemWidth,
+                            ),
+                            _buildStatCard(
+                              'Marketing Enabled',
+                              _marketingEnabledUsers.toString(),
+                              Icons.mark_email_read,
+                              Colors.green,
+                              width: itemWidth,
+                            ),
+                          ],
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 24),
@@ -774,53 +790,98 @@ class _MarketingTabState extends State<MarketingTab> {
                                 ),
                               )
                             else
-                              ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _recentCampaigns.length,
-                                separatorBuilder: (_, index) => const Divider(),
-                                itemBuilder: (context, index) {
-                                  final campaign = _recentCampaigns[index];
-                                  final sentAt =
-                                      (campaign['sentAt'] as Timestamp?)
-                                          ?.toDate();
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final spacing = ResponsiveHelper.getSpacing(
+                                    context,
+                                  );
+                                  final availableWidth = constraints.maxWidth;
+                                  final columnCount =
+                                      ResponsiveHelper.getColumnCountForWidth(
+                                        availableWidth,
+                                        minTileWidth: 360,
+                                        maxColumns: 3,
+                                      );
+                                  final itemWidth =
+                                      (availableWidth -
+                                          (spacing * (columnCount - 1))) /
+                                      columnCount;
 
-                                  return ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: Colors.green.shade100,
-                                      child: Icon(
-                                        Icons.check_circle,
-                                        color: Colors.green.shade700,
-                                      ),
-                                    ),
-                                    title: Text(
-                                      campaign['subject'] ?? 'No Subject',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    subtitle: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Sent to ${campaign['recipientCount']} users',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                        if (sentAt != null)
-                                          Text(
-                                            _formatDate(sentAt),
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
+                                  return Wrap(
+                                    spacing: spacing,
+                                    runSpacing: spacing,
+                                    children: _recentCampaigns.map((campaign) {
+                                      final sentAt =
+                                          (campaign['sentAt'] as Timestamp?)
+                                              ?.toDate();
+
+                                      return SizedBox(
+                                        width: itemWidth,
+                                        child: Card(
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(16),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    CircleAvatar(
+                                                      backgroundColor:
+                                                          Colors.green.shade100,
+                                                      child: Icon(
+                                                        Icons.check_circle,
+                                                        color: Colors
+                                                            .green
+                                                            .shade700,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 12),
+                                                    Expanded(
+                                                      child: Text(
+                                                        campaign['subject'] ??
+                                                            'No Subject',
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  'Sent to ${campaign['recipientCount']} users',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.grey.shade700,
+                                                  ),
+                                                ),
+                                                if (sentAt != null)
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          top: 4,
+                                                        ),
+                                                    child: Text(
+                                                      _formatDate(sentAt),
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
                                           ),
-                                      ],
-                                    ),
+                                        ),
+                                      );
+                                    }).toList(),
                                   );
                                 },
                               ),
@@ -839,31 +900,35 @@ class _MarketingTabState extends State<MarketingTab> {
     String label,
     String value,
     IconData icon,
-    Color color,
-  ) {
+    Color color, {
+    double? width,
+  }) {
     return Card(
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Icon(icon, size: 32, color: color),
-            const SizedBox(height: 12),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: color,
+        child: SizedBox(
+          width: width,
+          child: Column(
+            children: [
+              Icon(icon, size: 32, color: color),
+              const SizedBox(height: 12),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );

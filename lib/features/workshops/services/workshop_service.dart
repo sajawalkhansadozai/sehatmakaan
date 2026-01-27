@@ -1068,10 +1068,8 @@ class WorkshopService {
       final totalParticipants = participantPayments.length;
       final totalRevenue = totalParticipants * workshopPrice;
 
-      // 🌐 GOD MODE: Fetch dynamic globalCommission from system settings
-      final systemSettings = await _getSystemSettings();
-      final globalCommissionRate =
-          (systemSettings['globalCommission'] ?? 20.0) / 100.0;
+      // Use fixed 20% commission (no longer dynamic)
+      const double globalCommissionRate = 0.20;
 
       final adminCommission = totalRevenue * globalCommissionRate;
       final doctorPayout = totalRevenue * (1.0 - globalCommissionRate);
@@ -1112,20 +1110,6 @@ class WorkshopService {
     } catch (e) {
       debugPrint('❌ Get financial snapshot error: $e');
       return {'success': false, 'error': 'Failed to fetch financial snapshot'};
-    }
-  }
-
-  // ⚙️ GOD MODE HELPER: Fetch system settings for global commission
-  Future<Map<String, dynamic>> _getSystemSettings() async {
-    try {
-      final doc = await _firestore
-          .collection('app_settings')
-          .doc('system_config')
-          .get();
-      return doc.data() ?? {};
-    } catch (e) {
-      debugPrint('⚠️ Failed to fetch system settings: $e');
-      return {};
     }
   }
 }

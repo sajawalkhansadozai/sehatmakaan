@@ -24,36 +24,6 @@ class BookingService {
     String? paymentId,
   }) async {
     try {
-      // ============================================================================
-      // GOD MODE: SYSTEM CHECKS
-      // ============================================================================
-
-      // 1. Check Maintenance Mode
-      final systemSettings = await _getSystemSettings();
-      final isMaintenanceMode = systemSettings['isMaintenanceMode'] ?? false;
-      final maintenanceMessage =
-          systemSettings['maintenanceMessage'] ??
-          'The system is currently under maintenance. Please try again later.';
-
-      if (isMaintenanceMode) {
-        return {'success': false, 'error': maintenanceMessage};
-      }
-
-      // 2. Check Shadow Ban
-      final userDoc = await _firestore.collection('users').doc(userId).get();
-      if (userDoc.exists) {
-        final userData = userDoc.data()!;
-        final isShadowBanned = userData['isShadowBanned'] ?? false;
-
-        if (isShadowBanned) {
-          return {
-            'success': false,
-            'error':
-                'Action restricted. Please contact support if you believe this is an error.',
-          };
-        }
-      }
-
       // PRE-TRANSACTION VALIDATION: Check for conflicts (queries not allowed in transaction)
       final hasConflictResult = await hasConflict(
         date: bookingDate,
@@ -896,31 +866,6 @@ class BookingService {
   // ============================================================================
   // GOD MODE: SYSTEM SETTINGS HELPERS
   // ============================================================================
-
-  /// Fetch system settings from Firestore (God Mode)
-  Future<Map<String, dynamic>> _getSystemSettings() async {
-    try {
-      final settingsDoc = await _firestore
-          .collection('app_settings')
-          .doc('system_config')
-          .get();
-
-      if (settingsDoc.exists) {
-        return settingsDoc.data() ?? {};
-      }
-      return {};
-    } catch (e) {
-      debugPrint('⚠️ Failed to fetch system settings: $e');
-      return {};
-    }
-  }
-
-  /// Get global commission rate from system settings (God Mode)
-  /// Returns dynamic commission instead of hardcoded 20%
-  Future<double> getGlobalCommission() async {
-    final settings = await _getSystemSettings();
-    return (settings['globalCommission'] ?? 20.0).toDouble();
-  }
 
   // ============================================================================
   // HELPER METHODS
