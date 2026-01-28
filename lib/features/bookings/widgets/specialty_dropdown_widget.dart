@@ -30,8 +30,7 @@ class SpecialtyDropdownWidget extends StatelessWidget {
         case 'dental':
           return [
             {'value': 'general-dentist', 'label': 'General Dentist'},
-            {'value': 'orthodontist', 'label': 'Orthodontist'},
-            {'value': 'endodontist', 'label': 'Endodontist'},
+            {'value': 'specialist-package', 'label': 'Specialist Package'},
           ];
         case 'medical':
           return [

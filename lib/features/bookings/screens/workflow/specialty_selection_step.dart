@@ -15,7 +15,7 @@ class SpecialtySelectionStep extends StatelessWidget {
   });
 
   static const Map<SuiteType, List<String>> suiteSpecialties = {
-    SuiteType.dental: ['General Dentist', 'Endodontist', 'Orthodontist'],
+    SuiteType.dental: ['General Dentist', 'Specialist'],
     SuiteType.medical: ['General Medical'],
     SuiteType.aesthetic: ['Aesthetic Dermatology'],
   };
@@ -62,6 +62,14 @@ class SpecialtySelectionStep extends StatelessWidget {
   Widget _buildSpecialtyCard(String specialty) {
     final isSelected = selectedSpecialty == specialty;
 
+    // Get price based on specialty
+    String priceText = '';
+    if (specialty == 'General Dentist') {
+      priceText = '(PKR 1500/hour)';
+    } else if (specialty == 'Specialist') {
+      priceText = '(PKR 3000/hour)';
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: isSelected ? 4 : 2,
@@ -83,12 +91,27 @@ class SpecialtySelectionStep extends StatelessWidget {
           ),
           child: const Icon(Icons.medical_services, color: Color(0xFF006876)),
         ),
-        title: Text(
-          specialty,
-          style: TextStyle(
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            color: const Color(0xFF006876),
-          ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              specialty,
+              style: TextStyle(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: const Color(0xFF006876),
+                fontSize: 16,
+              ),
+            ),
+            if (priceText.isNotEmpty)
+              Text(
+                priceText,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: const Color(0xFFFF6B35),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+          ],
         ),
         trailing: isSelected
             ? const Icon(Icons.check_circle, color: Color(0xFF006876))

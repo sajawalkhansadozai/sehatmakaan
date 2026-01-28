@@ -41,7 +41,11 @@ class BookingSummaryWidget extends StatelessWidget {
       final suite = AppConstants.suites.firstWhere(
         (s) => s.type == selectedSuite,
       );
-      var rate = suite.baseRate.toDouble();
+
+      // Check if specialty is "Specialist Package" to apply specialist rate
+      var rate = (selectedSpecialty == 'Specialist Package')
+          ? (suite.specialistRate ?? suite.baseRate.toDouble())
+          : suite.baseRate.toDouble();
 
       // Priority Booking addon grants access without additional rate charges
       // Users pay PKR 5,000 for addon, then use priority slots at base rate

@@ -252,7 +252,7 @@ class _PaymentStepState extends State<PaymentStep> {
                     ],
                   ),
                   Text(
-                    'ZAR ${widget.totalAmount.toStringAsFixed(2)}',
+                    'PKR ${widget.totalAmount.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,

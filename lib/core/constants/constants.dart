@@ -78,51 +78,33 @@ class AppConstants {
   /// Hourly Package Add-ons
   static final List<Addon> hourlyAddons = [
     Addon(
-      name: 'Dental Assistant Support (30 mins)',
+      name: 'Dental assistant (30 mins)',
       price: 500,
-      code: 'dental_assistant_support',
+      code: 'dental_assistant',
       applicableFor: ['dental'],
     ),
     Addon(
-      name: 'Assistant Support (30 mins)',
+      name: 'Medical nurse (30 mins)',
       price: 500,
-      code: 'assistant_support',
-      applicableFor: ['aesthetic'],
-    ),
-    Addon(
-      name: 'Sterile Consumables Kit',
-      price: 300,
-      code: 'sterile_consumables',
-      applicableFor: ['dental', 'aesthetic'],
-    ),
-    Addon(
-      name: 'Instrument Kit Use',
-      price: 1000,
-      code: 'instruments',
-      applicableFor: ['dental'],
-    ),
-    Addon(
-      name: 'Intraoral X-ray Use',
-      price: 500,
-      code: 'xray',
-      applicableFor: ['dental'],
-    ),
-    Addon(
-      name: 'OPD nurse (30 mins)',
-      price: 500,
-      code: 'opd_nurse',
+      code: 'medical_nurse',
       applicableFor: ['medical'],
     ),
     Addon(
-      name: 'Laboratory access',
-      price: 1000,
-      code: 'laboratory',
+      name: 'Intraoral x-ray use',
+      price: 300,
+      code: 'intraoral_xray',
+      applicableFor: ['dental'],
+    ),
+    Addon(
+      name: 'Priority booking',
+      price: 500,
+      code: 'priority_booking',
       applicableFor: ['all'],
     ),
     Addon(
-      name: 'Conveyance',
-      price: 6000,
-      code: 'conveyance',
+      name: 'Extended hours (get 30 mins extra)',
+      price: 500,
+      code: 'extended_hours',
       applicableFor: ['all'],
     ),
   ];

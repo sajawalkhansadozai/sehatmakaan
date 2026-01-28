@@ -111,15 +111,6 @@ class SuiteSelectionStep extends StatelessWidget {
                         color: const Color(0xFF006876).withValues(alpha: 0.7),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'PKR ${baseRate.toStringAsFixed(0)}/hour',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFFFF6B35),
-                      ),
-                    ),
                   ],
                 ),
               ),

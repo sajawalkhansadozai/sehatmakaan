@@ -14,24 +14,82 @@ class AddonsSelectionStep extends StatelessWidget {
   });
 
   static const List<Map<String, dynamic>> availableAddons = [
+    // Monthly package addons
     {
       'name': 'Extra 10 Hour Block',
-      'description': 'Add 10 additional hours (Monthly only)',
-      'price': 15000.0,
+      'description': 'Add 10 additional hours',
+      'price': 10000.0,
       'code': 'extra_10_hours',
       'forMonthlyOnly': true,
     },
     {
-      'name': 'Priority Booking',
-      'description': 'Access weekends and 6PM-10PM slots',
+      'name': 'Dedicated Locker',
+      'description': 'Store your equipment securely',
+      'price': 2000.0,
+      'code': 'dedicated_locker',
+      'forMonthlyOnly': true,
+    },
+    {
+      'name': 'Clinical Assistant',
+      'description': 'Professional assistant support',
       'price': 5000.0,
+      'code': 'clinical_assistant',
+      'forMonthlyOnly': true,
+    },
+    {
+      'name': 'Social Media Highlight',
+      'description': 'Featured on our social media',
+      'price': 3000.0,
+      'code': 'social_media_highlight',
+      'forMonthlyOnly': true,
+    },
+    {
+      'name': 'Laboratory Access',
+      'description': 'Access to laboratory facilities',
+      'price': 1000.0,
+      'code': 'laboratory_access',
+      'forMonthlyOnly': true,
+    },
+    {
+      'name': 'Priority Booking',
+      'description': 'Priority access to time slots',
+      'price': 2500.0,
+      'code': 'priority_booking',
+      'forMonthlyOnly': true,
+    },
+    // Hourly booking addons
+    {
+      'name': 'Dental assistant (30 mins)',
+      'description': 'Professional dental assistant support',
+      'price': 500.0,
+      'code': 'dental_assistant',
+      'forMonthlyOnly': false,
+    },
+    {
+      'name': 'Medical nurse (30 mins)',
+      'description': 'Professional medical nurse support',
+      'price': 500.0,
+      'code': 'medical_nurse',
+      'forMonthlyOnly': false,
+    },
+    {
+      'name': 'Intraoral x-ray use',
+      'description': 'Access to intraoral x-ray equipment',
+      'price': 300.0,
+      'code': 'intraoral_xray',
+      'forMonthlyOnly': false,
+    },
+    {
+      'name': 'Priority booking',
+      'description': 'Access weekends and 6PM-10PM slots',
+      'price': 500.0,
       'code': 'priority_booking',
       'forMonthlyOnly': false,
     },
     {
-      'name': 'Extended Hours',
-      'description': 'Get 30 minutes extra per booking',
-      'price': 8000.0,
+      'name': 'Extended hours (get 30 mins extra)',
+      'description': 'Get 30 minutes bonus per booking',
+      'price': 500.0,
       'code': 'extended_hours',
       'forMonthlyOnly': false,
     },
@@ -42,11 +100,12 @@ class AddonsSelectionStep extends StatelessWidget {
     // Filter add-ons based on booking type
     final filteredAddons = availableAddons.where((addon) {
       if (isHourlyBooking) {
-        // For hourly bookings, exclude monthly-only add-ons
+        // For hourly bookings, show only hourly add-ons
         return addon['forMonthlyOnly'] != true;
+      } else {
+        // For monthly bookings, show only monthly add-ons
+        return addon['forMonthlyOnly'] == true;
       }
-      // For monthly bookings, show all add-ons
-      return true;
     }).toList();
 
     return SingleChildScrollView(

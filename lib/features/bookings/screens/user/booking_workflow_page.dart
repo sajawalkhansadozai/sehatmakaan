@@ -396,7 +396,11 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
       final suite = AppConstants.suites.firstWhere(
         (s) => s.type == _selectedSuite,
       );
-      return suite.baseRate * _selectedHours;
+      // Check if specialty is "Specialist Package" to apply specialist rate
+      final rate = (_selectedSpecialty == 'Specialist Package')
+          ? (suite.specialistRate ?? suite.baseRate)
+          : suite.baseRate;
+      return rate * _selectedHours;
     }
     return 0.0;
   }
@@ -412,7 +416,10 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
       final suite = AppConstants.suites.firstWhere(
         (s) => s.type == _selectedSuite,
       );
-      var baseRate = suite.baseRate.toDouble();
+      // Check if specialty is "Specialist Package" to apply specialist rate
+      var baseRate = (_selectedSpecialty == 'Specialist Package')
+          ? (suite.specialistRate ?? suite.baseRate.toDouble())
+          : suite.baseRate.toDouble();
 
       // Priority Booking addon grants access without additional rate charges
       // Users pay PKR 5,000 for addon, then use priority slots at base rate
@@ -644,7 +651,7 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
       'isActive': true,
       'paymentStatus': 'paid',
       'paymentMethod': 'payfast',
-      'currency': 'ZAR',
+      'currency': 'PKR',
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -659,8 +666,12 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
       final suite = AppConstants.suites.firstWhere(
         (s) => s.type == _selectedSuite,
       );
-      var baseRate = suite.baseRate.toDouble();
-      final originalRate = suite.baseRate.toDouble();
+
+      // Check if specialty is "Specialist Package" to apply specialist rate
+      var baseRate = (_selectedSpecialty == 'Specialist Package')
+          ? (suite.specialistRate ?? suite.baseRate.toDouble())
+          : suite.baseRate.toDouble();
+      final originalRate = baseRate;
 
       // Check if this is a priority time slot (6PM onwards or weekend)
       bool isPrioritySlot = false;
@@ -882,7 +893,7 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
           'status': 'confirmed',
           'paymentStatus': 'paid',
           'paymentMethod': 'payfast',
-          'currency': 'ZAR',
+          'currency': 'PKR',
           'isPaid': true,
           'paidAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),

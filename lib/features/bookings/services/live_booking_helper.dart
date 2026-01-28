@@ -23,29 +23,6 @@ class LiveBookingHelper {
       final durationHours = (durationMinutes / 60).ceil();
 
       int minutesToDeduct = durationMinutes;
-      bool hasExtendedHoursBonus = false;
-
-      // Check for Extended Hours addon
-      if (selectedSubscriptionId != null) {
-        final selectedSub = subscriptions.firstWhere(
-          (sub) => sub['id'] == selectedSubscriptionId,
-          orElse: () => {},
-        );
-
-        if (selectedSub.isNotEmpty) {
-          final addons = selectedSub['selectedAddons'] as List?;
-          if (addons != null) {
-            hasExtendedHoursBonus = addons.any(
-              (addon) => addon['code'] == 'extended_hours',
-            );
-          }
-        }
-      }
-
-      // Extended Hours addon: Always subtract 30 min bonus, minimum 0
-      if (hasExtendedHoursBonus) {
-        minutesToDeduct = durationMinutes > 30 ? durationMinutes - 30 : 0;
-      }
 
       // Validate sufficient hours
       int selectedSubRemainingMins = 0;
@@ -135,7 +112,6 @@ class LiveBookingHelper {
           'durationMins': durationMinutes % 60,
           'totalDurationMins': durationMinutes,
           'chargedMinutes': minutesToDeduct,
-          'hasExtendedHoursBonus': hasExtendedHoursBonus,
           'status': 'confirmed',
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
