@@ -12,6 +12,8 @@ class BookingSummaryWidget extends StatelessWidget {
   final String? selectedTimeSlot;
   final int selectedHours;
   final List<Map<String, dynamic>> selectedAddons;
+  final TimeOfDay? startTime; // 🎁 For exact duration calculation
+  final TimeOfDay? endTime; // 🎁 For exact duration calculation
 
   const BookingSummaryWidget({
     super.key,
@@ -23,6 +25,8 @@ class BookingSummaryWidget extends StatelessWidget {
     required this.selectedTimeSlot,
     required this.selectedHours,
     required this.selectedAddons,
+    this.startTime,
+    this.endTime,
   });
 
   @override
@@ -50,7 +54,31 @@ class BookingSummaryWidget extends StatelessWidget {
       // Priority Booking addon grants access without additional rate charges
       // Users pay PKR 5,000 for addon, then use priority slots at base rate
 
-      basePrice = rate * selectedHours;
+      // 🎁 EXTENDED HOURS FIX: Calculate chargeable hours using exact start/end times
+      double chargeableHours;
+      if (startTime != null && endTime != null) {
+        // Use exact time difference for accurate calculation
+        final startMins = startTime!.hour * 60 + startTime!.minute;
+        final endMins = endTime!.hour * 60 + endTime!.minute;
+        int totalMins = endMins - startMins;
+
+        // Check if Extended Hours addon is selected
+        final hasExtendedHours = selectedAddons.any(
+          (a) => a['code'] == 'extended_hours',
+        );
+
+        // Subtract 30 min bonus if Extended Hours is selected
+        if (hasExtendedHours && totalMins >= 30) {
+          totalMins = totalMins - 30; // Don't charge for the bonus 30 mins
+        }
+
+        chargeableHours = totalMins / 60.0;
+      } else {
+        // Fallback to selectedHours if times not available
+        chargeableHours = selectedHours.toDouble();
+      }
+
+      basePrice = rate * chargeableHours;
       total += basePrice;
     }
 

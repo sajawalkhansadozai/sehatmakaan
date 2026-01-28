@@ -312,6 +312,7 @@ class AppConstants {
   };
 
   /// Time Slots (Normal working hours: 9AM - 5PM)
+  // UI-friendly slots: Only hourly (major slots) for clean UI
   static final List<String> timeSlots = [
     '09:00',
     '10:00',
@@ -325,6 +326,7 @@ class AppConstants {
   ];
 
   /// Priority Time Slots (6PM - 10PM, requires Priority Booking addon)
+  /// Hourly only for UI
   static final List<String> priorityTimeSlots = [
     '18:00',
     '19:00',
@@ -332,6 +334,43 @@ class AppConstants {
     '21:00',
     '22:00',
   ];
+
+  /// Helper function to generate minute-by-minute slots for backend calculations
+  /// Used internally for availability checking and conflict detection
+  static List<String> _generateMinuteSlots(
+    int startHour,
+    int startMin,
+    int endHour,
+    int endMin,
+  ) {
+    final slots = <String>[];
+    int currentHour = startHour;
+    int currentMin = startMin;
+
+    while (currentHour < endHour ||
+        (currentHour == endHour && currentMin <= endMin)) {
+      slots.add(
+        '${currentHour.toString().padLeft(2, '0')}:${currentMin.toString().padLeft(2, '0')}',
+      );
+
+      // Increment by 1 minute
+      currentMin++;
+      if (currentMin >= 60) {
+        currentMin = 0;
+        currentHour++;
+      }
+    }
+
+    return slots;
+  }
+
+  /// Get all minute-by-minute slots for backend calculations
+  /// This ensures every minute is available for booking (no gaps)
+  static List<String> getAllMinuteSlots() {
+    final baseSlots = _generateMinuteSlots(9, 0, 17, 0);
+    final prioritySlots = _generateMinuteSlots(18, 0, 22, 0);
+    return [...baseSlots, ...prioritySlots];
+  }
 
   /// Extended Time Slots (Currently disabled - office closes at 22:00)
   static final List<String> extendedTimeSlots = ['23:00', '00:00'];

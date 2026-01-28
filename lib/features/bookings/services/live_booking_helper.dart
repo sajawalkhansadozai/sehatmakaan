@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:sehat_makaan_flutter/core/constants/constants.dart';
 
 class LiveBookingHelper {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -204,6 +205,9 @@ class LiveBookingHelper {
         .where('status', whereIn: ['confirmed', 'in_progress'])
         .get();
 
+    // 🛡️ BUFFER-SAFE CONFLICT CHECK: Include 15-min buffer like hourly booking
+    const bufferMins = AppConstants.turnoverBufferMinutes; // 15 mins
+
     for (final doc in bookingsSnapshot.docs) {
       final data = doc.data();
       final parts1 = (data['startTime'] as String?)?.split(':');
@@ -213,12 +217,19 @@ class LiveBookingHelper {
         final bStart = int.parse(parts1[0]) * 60 + int.parse(parts1[1]);
         final bEnd = int.parse(parts2[0]) * 60 + int.parse(parts2[1]);
 
-        if (startMins < bEnd && endMins > bStart) {
+        // ✅ NEW BOOKING CONFLICTS IF:
+        // startMins < (bEnd + buffer) AND (endMins + buffer) > bStart
+        if (startMins < (bEnd + bufferMins) &&
+            (endMins + bufferMins) > bStart) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Time slot conflicts with existing booking'),
+              SnackBar(
+                content: Text(
+                  'Time slot conflicts with existing booking ($parts1 - $parts2) in ${_getSuiteTypeForSpecialty(suiteType)}. '
+                  'Please select a different time with 15-min gap.',
+                ),
                 backgroundColor: Colors.red,
+                duration: const Duration(seconds: 4),
               ),
             );
           }

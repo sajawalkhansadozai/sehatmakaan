@@ -109,70 +109,39 @@ class SlotAvailabilityService {
 
       debugPrint('🎯 hasPriorityBooking: $hasPriorityBooking');
 
-      final allTimeSlots = AppConstants.getAllTimeSlots(includeExtended: false);
+      const hardLimitMins = 22 * 60; // 22:00
+      const minBookingMins = 60; // Minimum 1 hour booking
 
-      for (final slot in allTimeSlots) {
-        final parts = slot.split(':');
-        final slotHour = int.parse(parts[0]);
-        final slotMins = slotHour * 60 + int.parse(parts[1]);
+      // 🎯 DYNAMIC SLOT GENERATION: Calculate available slots based on bookings
+      // Instead of checking predefined hourly slots, we generate slots dynamically
 
-        // Check if slot is in priority time
-        final isWeekend =
-            selectedDate.weekday == DateTime.saturday ||
-            selectedDate.weekday == DateTime.sunday;
-        final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
-        final isPrioritySlot = isWeekend || isPriorityTime;
+      if (bookedRanges.isEmpty) {
+        // No bookings - show standard hourly slots from 09:00
+        final standardSlots = AppConstants.getAllTimeSlots(
+          includeExtended: false,
+        );
+        for (final slot in standardSlots) {
+          final parts = slot.split(':');
+          final slotHour = int.parse(parts[0]);
+          final slotMins = slotHour * 60 + int.parse(parts[1]);
 
-        // Skip priority slots if user doesn't have addon
-        if (isPrioritySlot && !hasPriorityBooking) {
-          continue;
-        }
+          // Check priority and time constraints
+          final isWeekend =
+              selectedDate.weekday == DateTime.saturday ||
+              selectedDate.weekday == DateTime.sunday;
+          final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
+          final isPrioritySlot = isWeekend || isPriorityTime;
 
-        // Hard limit: Skip slots where 1-hour booking would exceed 22:00
-        const hardLimitMins = 22 * 60;
-        const minBookingMins = 60;
-        if (slotMins + minBookingMins > hardLimitMins) {
-          continue;
-        }
+          if (isPrioritySlot && !hasPriorityBooking) continue;
+          if (slotMins >= hardLimitMins) continue;
+          if (slotMins + minBookingMins > hardLimitMins) continue;
 
-        // Skip past time slots for today
-        if (isToday) {
-          final currentMinutes = now.hour * 60 + now.minute;
-          const gracePeriodMins = 30;
-          if (slotMins + gracePeriodMins < currentMinutes) {
-            continue;
-          }
-        }
-
-        // Check availability and calculate max possible duration
-        bool isAvailable = true;
-        int? nextBookingStartMins;
-
-        for (final range in bookedRanges) {
-          if (slotMins >= range['start']! && slotMins < range['end']!) {
-            isAvailable = false;
-            break;
-          }
-          // Find next booking after this slot
-          if (range['start']! > slotMins) {
-            if (nextBookingStartMins == null ||
-                range['start']! < nextBookingStartMins) {
-              nextBookingStartMins = range['start'];
-            }
-          }
-        }
-
-        if (isAvailable) {
-          // Calculate max possible duration in hours
-          const hardLimitMins = 22 * 60; // 22:00 hard limit
-          int maxEndMins = hardLimitMins;
-
-          if (nextBookingStartMins != null) {
-            // Cap at next booking minus buffer time
-            maxEndMins = nextBookingStartMins - bufferTimeMins;
+          if (isToday) {
+            final currentMinutes = now.hour * 60 + now.minute;
+            if (slotMins + 30 < currentMinutes) continue;
           }
 
-          final maxDurationMins = maxEndMins - slotMins;
+          final maxDurationMins = hardLimitMins - slotMins;
           final maxDurationHours = (maxDurationMins / 60).floor();
 
           available.add({
@@ -180,50 +149,96 @@ class SlotAvailabilityService {
             'maxPossibleDuration': maxDurationHours >= 1 ? maxDurationHours : 1,
           });
         }
-      }
+      } else {
+        // ✅ WITH BOOKINGS: Generate slots dynamically after each booking + buffer
+        bookedRanges.sort((a, b) => a['start']!.compareTo(b['start']!));
 
-      // Add custom slot after last booking with mandatory buffer
-      if (lastBookingEndMins != null) {
-        final nextAvailableMins = lastBookingEndMins + bufferTimeMins;
-        final nextHour = nextAvailableMins ~/ 60;
-        final nextMin = nextAvailableMins % 60;
+        int lastCheckedMins = 9 * 60; // Start from 09:00
 
-        const hardLimitMins = 22 * 60;
-        const minBookingMins = 60;
-        final wouldExceedLimit =
-            nextAvailableMins + minBookingMins > hardLimitMins;
+        for (final range in bookedRanges) {
+          final bookingStart = range['start']!;
+          final bookingEnd = range['end']!;
 
-        if (nextHour < 22 && !wouldExceedLimit) {
-          final customSlot =
-              '${nextHour.toString().padLeft(2, '0')}:${nextMin.toString().padLeft(2, '0')}';
+          // Add slot BEFORE this booking if there's space
+          if (bookingStart - lastCheckedMins >= minBookingMins) {
+            final slotHour = lastCheckedMins ~/ 60;
+            final slotMin = lastCheckedMins % 60;
+            final slot =
+                '${slotHour.toString().padLeft(2, '0')}:${slotMin.toString().padLeft(2, '0')}';
+
+            // Check constraints
+            final isWeekend =
+                selectedDate.weekday == DateTime.saturday ||
+                selectedDate.weekday == DateTime.sunday;
+            final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
+            final isPrioritySlot = isWeekend || isPriorityTime;
+
+            if (!isPrioritySlot || hasPriorityBooking) {
+              if (isToday) {
+                final currentMinutes = now.hour * 60 + now.minute;
+                if (lastCheckedMins + 30 >= currentMinutes) {
+                  final maxDurationMins = bookingStart - lastCheckedMins;
+                  final maxDurationHours = (maxDurationMins / 60).floor();
+
+                  available.add({
+                    'slot': slot,
+                    'maxPossibleDuration': maxDurationHours >= 1
+                        ? maxDurationHours
+                        : 1,
+                  });
+                }
+              } else {
+                final maxDurationMins = bookingStart - lastCheckedMins;
+                final maxDurationHours = (maxDurationMins / 60).floor();
+
+                available.add({
+                  'slot': slot,
+                  'maxPossibleDuration': maxDurationHours >= 1
+                      ? maxDurationHours
+                      : 1,
+                });
+              }
+            }
+          }
+
+          // Move to after this booking + buffer
+          lastCheckedMins = bookingEnd + bufferTimeMins;
+        }
+
+        // ✅ Add slot AFTER last booking + buffer
+        if (lastCheckedMins < hardLimitMins &&
+            hardLimitMins - lastCheckedMins >= minBookingMins) {
+          final slotHour = lastCheckedMins ~/ 60;
+          final slotMin = lastCheckedMins % 60;
+          final slot =
+              '${slotHour.toString().padLeft(2, '0')}:${slotMin.toString().padLeft(2, '0')}';
 
           final isWeekend =
               selectedDate.weekday == DateTime.saturday ||
               selectedDate.weekday == DateTime.sunday;
-          final isPriorityTime = (nextHour >= 18 && nextHour <= 22);
+          final isPriorityTime = (slotHour >= 18 && slotHour <= 22);
           final isPrioritySlot = isWeekend || isPriorityTime;
 
-          final canAddSlot = !isPrioritySlot || hasPriorityBooking;
-
-          if (canAddSlot && !available.any((s) => s['slot'] == customSlot)) {
-            const hardLimitMins = 22 * 60;
-            final maxDurationMins = hardLimitMins - nextAvailableMins;
-            final maxDurationHours = (maxDurationMins / 60).floor();
-
+          if (!isPrioritySlot || hasPriorityBooking) {
             if (isToday) {
               final currentMinutes = now.hour * 60 + now.minute;
-              const gracePeriodMins = 30;
-              if (nextAvailableMins + gracePeriodMins > currentMinutes) {
-                available.insert(0, {
-                  'slot': customSlot,
+              if (lastCheckedMins + 30 >= currentMinutes) {
+                final maxDurationMins = hardLimitMins - lastCheckedMins;
+                final maxDurationHours = (maxDurationMins / 60).floor();
+
+                available.add({
+                  'slot': slot,
                   'maxPossibleDuration': maxDurationHours >= 1
                       ? maxDurationHours
                       : 1,
                 });
               }
             } else {
-              available.insert(0, {
-                'slot': customSlot,
+              final maxDurationMins = hardLimitMins - lastCheckedMins;
+              final maxDurationHours = (maxDurationMins / 60).floor();
+
+              available.add({
+                'slot': slot,
                 'maxPossibleDuration': maxDurationHours >= 1
                     ? maxDurationHours
                     : 1,
@@ -232,15 +247,6 @@ class SlotAvailabilityService {
           }
         }
       }
-
-      // Sort slots chronologically
-      available.sort((a, b) {
-        final aParts = (a['slot'] as String).split(':');
-        final bParts = (b['slot'] as String).split(':');
-        final aMins = int.parse(aParts[0]) * 60 + int.parse(aParts[1]);
-        final bMins = int.parse(bParts[0]) * 60 + int.parse(bParts[1]);
-        return aMins.compareTo(bMins);
-      });
 
       return available;
     } catch (e) {

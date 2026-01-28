@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehat_makaan_flutter/core/utils/price_helper.dart';
+import 'package:sehat_makaan_flutter/core/constants/types.dart';
 
-class AddonsSelectionStep extends StatelessWidget {
+class AddonsSelectionStep extends StatefulWidget {
   final List<Map<String, dynamic>> selectedAddons;
   final Function(Map<String, dynamic>) onAddonToggle;
   final bool isHourlyBooking;
@@ -13,83 +15,65 @@ class AddonsSelectionStep extends StatelessWidget {
     required this.isHourlyBooking,
   });
 
+  @override
+  State<AddonsSelectionStep> createState() => _AddonsSelectionStepState();
+}
+
+class _AddonsSelectionStepState extends State<AddonsSelectionStep> {
   static const List<Map<String, dynamic>> availableAddons = [
     // Monthly package addons
     {
       'name': 'Extra 10 Hour Block',
       'description': 'Add 10 additional hours',
-      'price': 10000.0,
       'code': 'extra_10_hours',
       'forMonthlyOnly': true,
     },
     {
       'name': 'Dedicated Locker',
       'description': 'Store your equipment securely',
-      'price': 2000.0,
       'code': 'dedicated_locker',
       'forMonthlyOnly': true,
     },
     {
       'name': 'Clinical Assistant',
       'description': 'Professional assistant support',
-      'price': 5000.0,
       'code': 'clinical_assistant',
       'forMonthlyOnly': true,
     },
     {
       'name': 'Social Media Highlight',
       'description': 'Featured on our social media',
-      'price': 3000.0,
-      'code': 'social_media_highlight',
-      'forMonthlyOnly': true,
-    },
-    {
-      'name': 'Laboratory Access',
-      'description': 'Access to laboratory facilities',
-      'price': 1000.0,
-      'code': 'laboratory_access',
-      'forMonthlyOnly': true,
-    },
-    {
-      'name': 'Priority Booking',
-      'description': 'Priority access to time slots',
-      'price': 2500.0,
-      'code': 'priority_booking',
+      'code': 'social_media',
       'forMonthlyOnly': true,
     },
     // Hourly booking addons
     {
       'name': 'Dental assistant (30 mins)',
       'description': 'Professional dental assistant support',
-      'price': 500.0,
       'code': 'dental_assistant',
       'forMonthlyOnly': false,
     },
     {
       'name': 'Medical nurse (30 mins)',
       'description': 'Professional medical nurse support',
-      'price': 500.0,
       'code': 'medical_nurse',
       'forMonthlyOnly': false,
     },
     {
       'name': 'Intraoral x-ray use',
       'description': 'Access to intraoral x-ray equipment',
-      'price': 300.0,
       'code': 'intraoral_xray',
       'forMonthlyOnly': false,
     },
     {
       'name': 'Priority booking',
       'description': 'Access weekends and 6PM-10PM slots',
-      'price': 500.0,
       'code': 'priority_booking',
       'forMonthlyOnly': false,
     },
     {
       'name': 'Extended hours (get 30 mins extra)',
       'description': 'Get 30 minutes bonus per booking',
-      'price': 500.0,
       'code': 'extended_hours',
       'forMonthlyOnly': false,
     },
@@ -97,24 +81,67 @@ class AddonsSelectionStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Filter add-ons based on booking type
-    final filteredAddons = availableAddons.where((addon) {
-      if (isHourlyBooking) {
-        // For hourly bookings, show only hourly add-ons
-        return addon['forMonthlyOnly'] != true;
-      } else {
-        // For monthly bookings, show only monthly add-ons
-        return addon['forMonthlyOnly'] == true;
-      }
-    }).toList();
+    // Real-time pricing with StreamBuilder
+    return StreamBuilder<List<Addon>>(
+      stream: widget.isHourlyBooking
+          ? PriceHelper.getHourlyAddonsStream()
+          : PriceHelper.getMonthlyAddonsStream(),
+      builder: (context, snapshot) {
+        // Loading state
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF006876)),
+            ),
+          );
+        }
 
+        // Get live addons or fallback to empty list
+        final liveAddons = snapshot.data ?? [];
+
+        // Merge with metadata
+        final displayAddons = availableAddons
+            .where((addon) {
+              if (widget.isHourlyBooking) {
+                return addon['forMonthlyOnly'] != true;
+              } else {
+                return addon['forMonthlyOnly'] == true;
+              }
+            })
+            .map((addon) {
+              // Find matching live price
+              final liveAddon = liveAddons.firstWhere(
+                (la) => la.code == addon['code'],
+                orElse: () => Addon(
+                  name: addon['name'] as String,
+                  description: addon['description'] as String,
+                  price: 0,
+                  code: addon['code'] as String,
+                ),
+              );
+
+              return {
+                'name': addon['name'],
+                'description': addon['description'],
+                'price': liveAddon.price,
+                'code': addon['code'],
+              };
+            })
+            .toList();
+
+        return _buildAddonsList(displayAddons);
+      },
+    );
+  }
+
+  Widget _buildAddonsList(List<Map<String, dynamic>> addons) {
     return SingleChildScrollView(
       padding: ResponsiveHelper.getResponsivePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isHourlyBooking
+            widget.isHourlyBooking
                 ? 'Step 3: Add-ons (Optional)'
                 : 'Step 4: Add-ons (Optional)',
             style: TextStyle(
@@ -134,7 +161,7 @@ class AddonsSelectionStep extends StatelessWidget {
             ),
           ),
           SizedBox(height: ResponsiveHelper.getResponsiveSpacing(context)),
-          ...filteredAddons.map(
+          ...addons.map(
             (addon) => _buildAddonItem(
               addon['name'] as String,
               addon['description'] as String,
@@ -153,14 +180,16 @@ class AddonsSelectionStep extends StatelessWidget {
     double price,
     String code,
   ) {
-    final isSelected = selectedAddons.any((addon) => addon['code'] == code);
+    final isSelected = widget.selectedAddons.any(
+      (addon) => addon['code'] == code,
+    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: CheckboxListTile(
         value: isSelected,
         onChanged: (value) {
-          onAddonToggle({'name': name, 'code': code, 'price': price});
+          widget.onAddonToggle({'name': name, 'code': code, 'price': price});
         },
         title: Text(
           name,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sehat_makaan_flutter/core/constants/types.dart';
 import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehat_makaan_flutter/core/utils/price_helper.dart';
 
 class SpecialtySelectionStep extends StatelessWidget {
   final SuiteType? selectedSuite;
@@ -27,47 +28,85 @@ class SpecialtySelectionStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: ResponsiveHelper.getResponsivePadding(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Step 3: Select Your Specialty',
-            style: TextStyle(
-              fontSize: ResponsiveHelper.getResponsiveFontSize(context, 24),
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF006876),
+    if (selectedSuite == null) {
+      return Center(
+        child: Text(
+          'Please select a suite first',
+          style: TextStyle(
+            fontSize: ResponsiveHelper.getResponsiveFontSize(context, 16),
+            color: Colors.grey,
+          ),
+        ),
+      );
+    }
+
+    // Real-time pricing with StreamBuilder
+    return StreamBuilder<Suite>(
+      stream: PriceHelper.getSuiteStream(selectedSuite!.value),
+      builder: (context, snapshot) {
+        // Loading state
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF006876)),
             ),
+          );
+        }
+
+        // Get suite with live prices or use defaults
+        final suite = snapshot.data;
+        final baseRate = suite?.baseRate ?? 1500.0;
+        final specialistRate = suite?.specialistRate ?? 3000.0;
+
+        return SingleChildScrollView(
+          padding: ResponsiveHelper.getResponsivePadding(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Step 3: Select Your Specialty',
+                style: TextStyle(
+                  fontSize: ResponsiveHelper.getResponsiveFontSize(context, 24),
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF006876),
+                ),
+              ),
+              SizedBox(
+                height: ResponsiveHelper.getResponsiveSpacing(context) * 0.3,
+              ),
+              Text(
+                'Choose your specialty for hourly booking',
+                style: TextStyle(
+                  fontSize: ResponsiveHelper.getResponsiveFontSize(context, 16),
+                  color: Colors.grey,
+                ),
+              ),
+              SizedBox(height: ResponsiveHelper.getResponsiveSpacing(context)),
+              ..._filteredSpecialties.map(
+                (specialty) =>
+                    _buildSpecialtyCard(specialty, baseRate, specialistRate),
+              ),
+            ],
           ),
-          SizedBox(
-            height: ResponsiveHelper.getResponsiveSpacing(context) * 0.3,
-          ),
-          Text(
-            'Choose your specialty for hourly booking',
-            style: TextStyle(
-              fontSize: ResponsiveHelper.getResponsiveFontSize(context, 16),
-              color: Colors.grey,
-            ),
-          ),
-          SizedBox(height: ResponsiveHelper.getResponsiveSpacing(context)),
-          ..._filteredSpecialties.map(
-            (specialty) => _buildSpecialtyCard(specialty),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildSpecialtyCard(String specialty) {
+  Widget _buildSpecialtyCard(
+    String specialty,
+    double baseRate,
+    double specialistRate,
+  ) {
     final isSelected = selectedSpecialty == specialty;
 
-    // Get price based on specialty
+    // Get price based on specialty with dynamic rates
     String priceText = '';
-    if (specialty == 'General Dentist') {
-      priceText = '(PKR 1500/hour)';
-    } else if (specialty == 'Specialist') {
-      priceText = '(PKR 3000/hour)';
+    if (specialty == 'General Dentist' || specialty == 'General Medical') {
+      priceText = '(PKR ${baseRate.toStringAsFixed(0)}/hour)';
+    } else if (specialty == 'Specialist' ||
+        specialty == 'Aesthetic Dermatology') {
+      priceText = '(PKR ${specialistRate.toStringAsFixed(0)}/hour)';
     }
 
     return Card(

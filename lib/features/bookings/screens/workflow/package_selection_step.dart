@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:sehat_makaan_flutter/core/constants/constants.dart';
 import 'package:sehat_makaan_flutter/core/constants/types.dart';
 import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehat_makaan_flutter/core/utils/price_helper.dart';
 
-class PackageSelectionStep extends StatelessWidget {
+class PackageSelectionStep extends StatefulWidget {
   final SuiteType? selectedSuite;
   final PackageType? selectedPackage;
   final Function(PackageType) onPackageSelected;
@@ -16,11 +17,54 @@ class PackageSelectionStep extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final packages = selectedSuite != null
-        ? AppConstants.packages[selectedSuite!.value] ?? []
-        : [];
+  State<PackageSelectionStep> createState() => _PackageSelectionStepState();
+}
 
+class _PackageSelectionStepState extends State<PackageSelectionStep> {
+  @override
+  Widget build(BuildContext context) {
+    if (widget.selectedSuite == null) {
+      return Center(
+        child: Text(
+          'Please select a suite first',
+          style: TextStyle(
+            fontSize: ResponsiveHelper.getResponsiveFontSize(context, 16),
+            color: Colors.grey,
+          ),
+        ),
+      );
+    }
+
+    // Real-time pricing with StreamBuilder
+    return StreamBuilder<List<Package>>(
+      stream: PriceHelper.getPackagesForSuiteStream(
+        widget.selectedSuite!.value,
+      ),
+      builder: (context, snapshot) {
+        // Loading state
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF006876)),
+            ),
+          );
+        }
+
+        // Error state - fallback to defaults
+        if (snapshot.hasError) {
+          return _buildPackageList(
+            AppConstants.packages[widget.selectedSuite!.value] ?? [],
+          );
+        }
+
+        // Success - show real-time prices
+        final packages = snapshot.data ?? [];
+        return _buildPackageList(packages);
+      },
+    );
+  }
+
+  Widget _buildPackageList(List<Package> packages) {
     return SingleChildScrollView(
       padding: ResponsiveHelper.getResponsivePadding(context),
       child: Column(
@@ -52,7 +96,7 @@ class PackageSelectionStep extends StatelessWidget {
   }
 
   Widget _buildPackageCard(Package pkg) {
-    final isSelected = selectedPackage == pkg.type;
+    final isSelected = widget.selectedPackage == pkg.type;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -65,7 +109,7 @@ class PackageSelectionStep extends StatelessWidget {
         ),
       ),
       child: InkWell(
-        onTap: () => onPackageSelected(pkg.type),
+        onTap: () => widget.onPackageSelected(pkg.type),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(20),

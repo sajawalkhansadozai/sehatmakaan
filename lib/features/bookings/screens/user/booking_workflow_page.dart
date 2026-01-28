@@ -6,6 +6,7 @@ import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
 import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/suite_selection_step.dart';
 import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/booking_type_selection_step.dart';
 import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/package_selection_step.dart';
+import 'package:sehat_makaan_flutter/core/utils/price_helper.dart';
 import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/specialty_selection_step.dart';
 import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/date_slot_selection_step.dart';
 import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/addons_selection_step.dart';
@@ -238,6 +239,8 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
                       selectedTimeSlot: _selectedTimeSlot,
                       selectedHours: _selectedHours,
                       selectedAddons: _selectedAddons,
+                      startTime: _startTime,
+                      endTime: _endTime,
                     ),
                   ),
                 ],
@@ -266,12 +269,15 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
                   setState(() {
                     _endTime = time;
                     // Calculate hours from time difference
+                    // 🎁 EXTENDED HOURS FIX: Don't use ceil() - preserve exact decimal value
                     if (_startTime != null && _endTime != null) {
                       final startMins =
                           _startTime!.hour * 60 + _startTime!.minute;
                       final endMins = _endTime!.hour * 60 + _endTime!.minute;
                       final totalMins = endMins - startMins;
-                      _selectedHours = (totalMins / 60).ceil();
+                      // Round to nearest hour for int display (1.5 hours → 2)
+                      // But actual charging is done based on time difference, not this value
+                      _selectedHours = (totalMins / 60).round();
                     }
                   });
                 },
@@ -304,6 +310,8 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
                       selectedTimeSlot: _selectedTimeSlot,
                       selectedHours: _selectedHours,
                       selectedAddons: _selectedAddons,
+                      startTime: _startTime,
+                      endTime: _endTime,
                     ),
                   ],
                 ),
@@ -338,6 +346,8 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
                       selectedTimeSlot: _selectedTimeSlot,
                       selectedHours: _selectedHours,
                       selectedAddons: _selectedAddons,
+                      startTime: _startTime,
+                      endTime: _endTime,
                     ),
                   ],
                 ),
@@ -409,9 +419,11 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
     double totalAmount = 0.0;
 
     if (_bookingType == 'monthly' && _selectedPackage != null) {
+      // Use dynamic pricing if available, fallback to defaults
       final packages = AppConstants.packages[_selectedSuite?.value] ?? [];
       final pkg = packages.firstWhere((p) => p.type == _selectedPackage);
-      totalAmount = pkg.price;
+      totalAmount = pkg
+          .price; // This will be updated with dynamic price in _loadDynamicPrices
     } else if (_bookingType == 'hourly' && _selectedSpecialty != null) {
       final suite = AppConstants.suites.firstWhere(
         (s) => s.type == _selectedSuite,
@@ -598,8 +610,11 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
   }
 
   Future<void> _createMonthlySubscription(String userId) async {
-    final packages = AppConstants.packages[_selectedSuite?.value] ?? [];
-    final pkg = packages.firstWhere((p) => p.type == _selectedPackage);
+    // Get package with dynamic pricing (admin prices override defaults)
+    final pkg = await PriceHelper.getPackageWithDynamicPricing(
+      _selectedSuite!.value,
+      _selectedPackage!.value,
+    );
 
     // Check if Extra 10 Hour Block addon is selected
     int totalHours = pkg.hours;
@@ -663,8 +678,9 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
 
   Future<void> _createHourlyBooking(String userId) async {
     try {
-      final suite = AppConstants.suites.firstWhere(
-        (s) => s.type == _selectedSuite,
+      // Get suite with dynamic pricing (admin prices override defaults)
+      final suite = await PriceHelper.getSuiteWithDynamicPricing(
+        _selectedSuite!.value,
       );
 
       // Check if specialty is "Specialist Package" to apply specialist rate

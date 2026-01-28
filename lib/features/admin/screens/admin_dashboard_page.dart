@@ -8,6 +8,7 @@ import 'package:sehat_makaan_flutter/features/admin/tabs/bookings_tab_bookings.d
 import 'package:sehat_makaan_flutter/features/admin/tabs/workshops_tab.dart';
 import 'package:sehat_makaan_flutter/features/admin/tabs/workshop_creators_tab.dart';
 import 'package:sehat_makaan_flutter/features/admin/tabs/marketing_tab.dart';
+import 'package:sehat_makaan_flutter/features/admin/tabs/pricing_management_tab.dart';
 import 'package:sehat_makaan_flutter/features/admin/dialogs/doctor_dialogs.dart';
 import 'package:sehat_makaan_flutter/features/admin/dialogs/booking_dialogs.dart';
 import 'package:sehat_makaan_flutter/features/admin/dialogs/workshop_dialogs.dart';
@@ -871,6 +872,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         icon: Icons.campaign,
                         label: 'Marketing',
                       ),
+                      _buildPopupMenuItem(
+                        value: 'pricing',
+                        icon: Icons.attach_money,
+                        label: 'Pricing',
+                      ),
                       const PopupMenuDivider(),
                       PopupMenuItem<String>(
                         value: 'logout',
@@ -971,6 +977,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         );
       case 'marketing':
         return const MarketingTab();
+      case 'pricing':
+        return PricingManagementTab(
+          adminId: widget.adminSession['id']?.toString() ?? '',
+        );
       default:
         return const OverviewTab();
     }
