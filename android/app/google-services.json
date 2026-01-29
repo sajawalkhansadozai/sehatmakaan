@@ -12,7 +12,20 @@
           "package_name": "com.sehatmakaan.sehat_makaan_flutter"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "137940009532-bk7n7e9uj1lpc3g9oab16m85bnk2bcvl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sehatmakaan.sehat_makaan_flutter",
+            "certificate_hash": "ca84a7269de2a29ac24da1b16b5012d1c9799f96"
+          }
+        },
+        {
+          "client_id": "137940009532-nthb162jkfk2fjnl0tkkbg7n51sphdr6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCoOM9HtC09HcTmOFLoDronUjBho3IHjHI"
@@ -20,7 +33,55 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "137940009532-nthb162jkfk2fjnl0tkkbg7n51sphdr6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "137940009532-3loul0h8a093a8aag5pqrr4kp720k6o2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.sehatmakaan.sehatMakaanFlutter"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:137940009532:android:f4c38fbf8be0b795053939",
+        "android_client_info": {
+          "package_name": "com.sehatmakaan.sehatmakaan"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "137940009532-nthb162jkfk2fjnl0tkkbg7n51sphdr6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoOM9HtC09HcTmOFLoDronUjBho3IHjHI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "137940009532-nthb162jkfk2fjnl0tkkbg7n51sphdr6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "137940009532-3loul0h8a093a8aag5pqrr4kp720k6o2.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.sehatmakaan.sehatMakaanFlutter"
+              }
+            }
+          ]
         }
       }
     }

@@ -48,17 +48,17 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyBH0sHfxt4qhWtKqkwW3oWETZah4VwRwSk',
-    appId: '1:137940009532:web:27bd8cf6b7254b73053939',
+    appId: '1:137940009532:web:b6b13e9e5aba8633053939',
     messagingSenderId: '137940009532',
     projectId: 'sehatmakaan-833e2',
     authDomain: 'sehatmakaan-833e2.firebaseapp.com',
     storageBucket: 'sehatmakaan-833e2.firebasestorage.app',
-    measurementId: 'G-EZ63T60DHD',
+    measurementId: 'G-2LH1LBV3XD',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCoOM9HtC09HcTmOFLoDronUjBho3IHjHI',
-    appId: '1:137940009532:android:ac7d84b1dcbb7c82053939',
+    appId: '1:137940009532:android:f4c38fbf8be0b795053939',
     messagingSenderId: '137940009532',
     projectId: 'sehatmakaan-833e2',
     storageBucket: 'sehatmakaan-833e2.firebasestorage.app',
@@ -66,10 +66,10 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyA6KE-ObsNmaU_SkNZiEbpzY_rq7q_xVN4',
-    appId: '1:137940009532:ios:5c5ebd24c1ed8eea053939',
+    appId: '1:137940009532:ios:1c964dc148a97c60053939',
     messagingSenderId: '137940009532',
     projectId: 'sehatmakaan-833e2',
     storageBucket: 'sehatmakaan-833e2.firebasestorage.app',
-    iosBundleId: 'com.sehatmakaan.sehatMakaanFlutter',
+    iosBundleId: 'com.sehatmakaan.sehatmakaan',
   );
 }

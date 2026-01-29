@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
-import 'package:sehat_makaan_flutter/core/constants/types.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/types.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
 
 class DateSlotSelectionStep extends StatefulWidget {
   final SuiteType? selectedSuite;

@@ -3,8 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sehat_makaan_flutter/shared/fcm_service.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/shared/fcm_service.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
 
 /// Service to monitor user status in real-time
 /// Automatically logs out user if account is suspended/deactivated

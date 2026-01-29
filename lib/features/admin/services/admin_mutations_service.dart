@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers/email_helper.dart';
 import '../helpers/notification_helper.dart';
-import 'package:sehat_makaan_flutter/features/admin/helpers/workshop_payment_helper.dart';
+import 'package:sehatmakaan/features/admin/helpers/workshop_payment_helper.dart';
 
 /// Service class for all Firebase mutation operations in admin dashboard
 class AdminMutationsService {

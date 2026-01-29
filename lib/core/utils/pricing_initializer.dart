@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/features/admin/services/pricing_service.dart';
+import 'package:sehatmakaan/features/admin/services/pricing_service.dart';
 
 /// One-time initialization script for default pricing
 ///
@@ -10,7 +10,7 @@ import 'package:sehat_makaan_flutter/features/admin/services/pricing_service.dar
 ///
 /// Example:
 /// ```dart
-/// import 'package:sehat_makaan_flutter/core/utils/pricing_initializer.dart';
+/// import 'package:sehatmakaan/core/utils/pricing_initializer.dart';
 ///
 /// void main() async {
 ///   WidgetsFlutterBinding.ensureInitialized();

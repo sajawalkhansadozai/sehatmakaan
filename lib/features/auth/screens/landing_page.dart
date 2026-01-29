@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 import 'privacy_policy_page.dart';
 import 'terms_conditions_page.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
 import 'dart:async'; // ✅ Import for Timer and StreamSubscription
 
 class LandingPage extends ConsumerStatefulWidget {

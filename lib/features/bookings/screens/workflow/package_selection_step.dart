@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
-import 'package:sehat_makaan_flutter/core/constants/types.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/core/utils/price_helper.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/types.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/utils/price_helper.dart';
 
 class PackageSelectionStep extends StatefulWidget {
   final SuiteType? selectedSuite;

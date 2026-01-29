@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 
 class SlotAvailabilityService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;

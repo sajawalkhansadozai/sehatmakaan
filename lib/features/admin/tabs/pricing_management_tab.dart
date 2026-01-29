@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:sehat_makaan_flutter/features/admin/models/pricing_config_model.dart';
-import 'package:sehat_makaan_flutter/features/admin/services/pricing_service.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/core/utils/dynamic_pricing.dart';
+import 'package:sehatmakaan/features/admin/models/pricing_config_model.dart';
+import 'package:sehatmakaan/features/admin/services/pricing_service.dart';
+import 'package:sehatmakaan/features/admin/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/utils/dynamic_pricing.dart';
 
 class PricingManagementTab extends StatefulWidget {
   final String adminId;

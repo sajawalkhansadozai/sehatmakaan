@@ -3,16 +3,16 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/shared/notification_model.dart';
-import 'package:sehat_makaan_flutter/core/common_widgets/dashboard/dashboard_app_bar.dart';
-import 'package:sehat_makaan_flutter/core/common_widgets/dashboard/dashboard_sidebar.dart';
-import 'package:sehat_makaan_flutter/core/common_widgets/dashboard/notifications_drawer.dart';
-import 'package:sehat_makaan_flutter/core/common_widgets/dashboard/subscription_card.dart';
-import 'package:sehat_makaan_flutter/features/bookings/widgets/booking_card.dart';
-import 'package:sehat_makaan_flutter/core/utils/dashboard_utils.dart';
-import 'package:sehat_makaan_flutter/shared/fcm_service.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/features/payments/widgets/shopping_cart_widget.dart';
+import 'package:sehatmakaan/shared/notification_model.dart';
+import 'package:sehatmakaan/core/common_widgets/dashboard/dashboard_app_bar.dart';
+import 'package:sehatmakaan/core/common_widgets/dashboard/dashboard_sidebar.dart';
+import 'package:sehatmakaan/core/common_widgets/dashboard/notifications_drawer.dart';
+import 'package:sehatmakaan/core/common_widgets/dashboard/subscription_card.dart';
+import 'package:sehatmakaan/features/bookings/widgets/booking_card.dart';
+import 'package:sehatmakaan/core/utils/dashboard_utils.dart';
+import 'package:sehatmakaan/shared/fcm_service.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/features/payments/widgets/shopping_cart_widget.dart';
 
 class DashboardPage extends StatefulWidget {
   final Map<String, dynamic> userSession;

@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
-import 'package:sehat_makaan_flutter/core/constants/types.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/suite_selection_step.dart';
-import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/booking_type_selection_step.dart';
-import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/package_selection_step.dart';
-import 'package:sehat_makaan_flutter/core/utils/price_helper.dart';
-import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/specialty_selection_step.dart';
-import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/date_slot_selection_step.dart';
-import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/addons_selection_step.dart';
-import 'package:sehat_makaan_flutter/features/bookings/screens/workflow/booking_summary_widget.dart';
-import 'package:sehat_makaan_flutter/features/payments/screens/payment_step.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/types.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/features/bookings/screens/workflow/suite_selection_step.dart';
+import 'package:sehatmakaan/features/bookings/screens/workflow/booking_type_selection_step.dart';
+import 'package:sehatmakaan/features/bookings/screens/workflow/package_selection_step.dart';
+import 'package:sehatmakaan/core/utils/price_helper.dart';
+import 'package:sehatmakaan/features/bookings/screens/workflow/specialty_selection_step.dart';
+import 'package:sehatmakaan/features/bookings/screens/workflow/date_slot_selection_step.dart';
+import 'package:sehatmakaan/features/bookings/screens/workflow/addons_selection_step.dart';
+import 'package:sehatmakaan/features/bookings/screens/workflow/booking_summary_widget.dart';
+import 'package:sehatmakaan/features/payments/screens/payment_step.dart';
 
 class BookingWorkflowPage extends StatefulWidget {
   final Map<String, dynamic> userSession;

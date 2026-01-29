@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 
 /// Specialty Tips Widget
 /// Displays helpful tips for each specialty including best times, pricing insights, etc.

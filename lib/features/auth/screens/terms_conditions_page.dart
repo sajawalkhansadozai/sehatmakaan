@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
 
 class TermsConditionsPage extends StatelessWidget {
   const TermsConditionsPage({super.key});

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
-import 'package:sehat_makaan_flutter/features/bookings/services/slot_availability_service.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
+import 'package:sehatmakaan/features/bookings/services/slot_availability_service.dart';
 import '../services/live_booking_helper.dart';
-import 'package:sehat_makaan_flutter/features/bookings/utils/duration_calculator.dart';
+import 'package:sehatmakaan/features/bookings/utils/duration_calculator.dart';
 import 'duration_button_widget.dart';
 import 'subscription_selector_widget.dart';
 import 'specialty_dropdown_widget.dart';

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
 
 class HelpAndSupportPage extends StatefulWidget {
   final Map<String, dynamic> userSession;

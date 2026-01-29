@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../widgets/workshop_card_widget.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/admin_styles.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/features/workshops/services/workshop_service.dart';
+import 'package:sehatmakaan/features/admin/utils/admin_styles.dart';
+import 'package:sehatmakaan/features/admin/utils/responsive_helper.dart';
+import 'package:sehatmakaan/features/workshops/services/workshop_service.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';

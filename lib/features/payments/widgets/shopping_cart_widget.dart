@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/core/constants/types.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/types.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 
 /// Shopping Cart Widget
 /// Displays cart items in a dropdown with add/remove/quantity controls

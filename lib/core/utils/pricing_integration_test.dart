@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/core/utils/price_helper.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
-import 'package:sehat_makaan_flutter/core/constants/types.dart';
+import 'package:sehatmakaan/core/utils/price_helper.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/types.dart';
 
 /// Test script to verify dynamic pricing integration
 ///
@@ -300,7 +300,7 @@ class PricingIntegrationTest {
 /// 
 /// ```dart
 /// // In main.dart or admin dashboard
-/// import 'package:sehat_makaan_flutter/core/utils/pricing_integration_test.dart';
+/// import 'package:sehatmakaan/core/utils/pricing_integration_test.dart';
 /// 
 /// // Run full test suite
 /// await PricingIntegrationTest.runAllTests();

@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 
 class LiveBookingHelper {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -58,17 +58,6 @@ class LiveBookingHelper {
       // Check for conflicts within the same suite type only
       final suiteType = _getSuiteTypeForSpecialty(specialty);
 
-      // PRE-TRANSACTION VALIDATIONS (Queries cannot run inside transactions)
-      // Check conflicts before entering transaction
-      final hasConflict = await _checkConflicts(
-        selectedDate: selectedDate,
-        startTime: startTime,
-        endTime: endTime,
-        context: context,
-        suiteType: suiteType,
-      );
-      if (hasConflict) return false;
-
       // Validate Priority Booking before transaction
       if (!await _validatePriorityBooking(
         context: context,
@@ -81,9 +70,61 @@ class LiveBookingHelper {
         return false;
       }
 
-      // ATOMIC TRANSACTION FOR RACE CONDITION PROTECTION
-      // Only writes (set/update) are allowed inside transaction
+      // 🔒 ATOMIC TRANSACTION FOR RACE CONDITION PROTECTION
+      // Conflict check MUST be inside transaction for true atomicity
       await _firestore.runTransaction((transaction) async {
+        // ✅ CHECK CONFLICTS INSIDE TRANSACTION (prevents race conditions)
+        final startMins = startTime.hour * 60 + startTime.minute;
+        final endMins = endTime.hour * 60 + endTime.minute;
+        const bufferMins = AppConstants.turnoverBufferMinutes; // 15 mins
+
+        final startOfDay = DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+        );
+        final endOfDay = startOfDay.add(const Duration(days: 1));
+
+        // Query bookings within transaction for atomic read
+        final bookingsSnapshot = await _firestore
+            .collection('bookings')
+            .where('suiteType', isEqualTo: suiteType)
+            .where(
+              'bookingDate',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
+            )
+            .where('bookingDate', isLessThan: Timestamp.fromDate(endOfDay))
+            .where('status', whereIn: ['confirmed', 'in_progress'])
+            .get();
+
+        // Check for conflicts with 15-min buffer
+        for (final doc in bookingsSnapshot.docs) {
+          final data = doc.data();
+          final bookedStart = data['startTime'] as String?;
+          final bookedEnd = data['endTime'] as String?;
+
+          if (bookedStart != null && bookedEnd != null) {
+            final startParts = bookedStart.split(':');
+            final endParts = bookedEnd.split(':');
+
+            if (startParts.length >= 2 && endParts.length >= 2) {
+              final bStart =
+                  int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
+              final bEnd = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
+
+              // 🛡️ Buffer-safe conflict detection
+              if (startMins < (bEnd + bufferMins) &&
+                  (endMins + bufferMins) > bStart) {
+                final conflictTime = '$bookedStart - $bookedEnd';
+                throw Exception(
+                  'Time slot conflicts with existing booking ($conflictTime) in $suiteType. '
+                  'Please select a different time with 15-min gap.',
+                );
+              }
+            }
+          }
+        }
+
         final startTimeStr =
             '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}';
         final endTimeStr =
@@ -172,72 +213,6 @@ class LiveBookingHelper {
       }
       return false;
     }
-  }
-
-  /// Check for booking conflicts within the same suite type only
-  /// Each suite (dental/medical/aesthetic) has independent time slots
-  Future<bool> _checkConflicts({
-    required DateTime selectedDate,
-    required TimeOfDay startTime,
-    required TimeOfDay endTime,
-    required BuildContext context,
-    required String suiteType,
-  }) async {
-    final startMins = startTime.hour * 60 + startTime.minute;
-    final endMins = endTime.hour * 60 + endTime.minute;
-
-    final startOfDay = DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
-    );
-    final endOfDay = startOfDay.add(const Duration(days: 1));
-
-    // Filter bookings by suite type - conflicts only within same suite
-    final bookingsSnapshot = await _firestore
-        .collection('bookings')
-        .where('suiteType', isEqualTo: suiteType)
-        .where(
-          'bookingDate',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
-        )
-        .where('bookingDate', isLessThan: Timestamp.fromDate(endOfDay))
-        .where('status', whereIn: ['confirmed', 'in_progress'])
-        .get();
-
-    // 🛡️ BUFFER-SAFE CONFLICT CHECK: Include 15-min buffer like hourly booking
-    const bufferMins = AppConstants.turnoverBufferMinutes; // 15 mins
-
-    for (final doc in bookingsSnapshot.docs) {
-      final data = doc.data();
-      final parts1 = (data['startTime'] as String?)?.split(':');
-      final parts2 = (data['endTime'] as String?)?.split(':');
-
-      if (parts1 != null && parts2 != null) {
-        final bStart = int.parse(parts1[0]) * 60 + int.parse(parts1[1]);
-        final bEnd = int.parse(parts2[0]) * 60 + int.parse(parts2[1]);
-
-        // ✅ NEW BOOKING CONFLICTS IF:
-        // startMins < (bEnd + buffer) AND (endMins + buffer) > bStart
-        if (startMins < (bEnd + bufferMins) &&
-            (endMins + bufferMins) > bStart) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Time slot conflicts with existing booking ($parts1 - $parts2) in ${_getSuiteTypeForSpecialty(suiteType)}. '
-                  'Please select a different time with 15-min gap.',
-                ),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   Future<bool> _validatePriorityBooking({

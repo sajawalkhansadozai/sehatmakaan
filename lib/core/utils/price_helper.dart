@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
-import 'package:sehat_makaan_flutter/core/constants/types.dart';
-import 'package:sehat_makaan_flutter/core/utils/dynamic_pricing.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/types.dart';
+import 'package:sehatmakaan/core/utils/dynamic_pricing.dart';
 
 /// Helper class to get prices with admin overrides
 ///

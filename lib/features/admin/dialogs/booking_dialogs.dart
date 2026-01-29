@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/admin_styles.dart';
+import 'package:sehatmakaan/features/admin/utils/admin_styles.dart';
 import '../utils/responsive_helper.dart';
 
 enum CancelBookingAction { withRefund, withoutRefund, cancel }

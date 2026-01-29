@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/core/common_widgets/dashboard/dashboard_app_bar.dart';
-import 'package:sehat_makaan_flutter/core/common_widgets/dashboard/dashboard_sidebar.dart';
-import 'package:sehat_makaan_flutter/features/auth/services/user_status_service.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/common_widgets/dashboard/dashboard_app_bar.dart';
+import 'package:sehatmakaan/core/common_widgets/dashboard/dashboard_sidebar.dart';
+import 'package:sehatmakaan/features/auth/services/user_status_service.dart';
 
 class SettingsPage extends StatefulWidget {
   final Map<String, dynamic> userSession;

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/shared/notification_model.dart';
+import 'package:sehatmakaan/shared/notification_model.dart';
 
 class NotificationsDrawer extends StatelessWidget {
   final List<NotificationModel> notifications;

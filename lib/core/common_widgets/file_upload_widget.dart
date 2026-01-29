@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:sehat_makaan_flutter/shared/firebase_storage_service.dart';
+import 'package:sehatmakaan/shared/firebase_storage_service.dart';
 
 /// File Upload Widget
 /// Provides UI for uploading files to Firebase Storage

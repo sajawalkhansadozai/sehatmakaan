@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sehat_makaan_flutter/features/auth/services/user_status_service.dart';
+import 'package:sehatmakaan/features/auth/services/user_status_service.dart';
 import 'drawer_item_widget.dart';
 
 class DashboardSidebar extends StatelessWidget {

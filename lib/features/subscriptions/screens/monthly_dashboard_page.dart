@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
 
 class MonthlyDashboardPage extends StatefulWidget {
   final Map<String, dynamic> userSession;

@@ -1,5 +1,5 @@
-import 'package:sehat_makaan_flutter/features/admin/models/pricing_config_model.dart';
-import 'package:sehat_makaan_flutter/features/admin/services/pricing_service.dart';
+import 'package:sehatmakaan/features/admin/models/pricing_config_model.dart';
+import 'package:sehatmakaan/features/admin/services/pricing_service.dart';
 
 /// Utility class to load dynamic pricing from Firestore
 ///

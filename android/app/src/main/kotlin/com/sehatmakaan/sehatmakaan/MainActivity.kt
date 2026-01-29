@@ -1,4 +1,4 @@
-package com.sehatmakaan.sehat_makaan_flutter
+package com.sehatmakaan.sehatmakaan
 
 import io.flutter.embedding.android.FlutterActivity
 

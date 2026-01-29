@@ -6,8 +6,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'package:sehat_makaan_flutter/features/workshops/models/workshop_model.dart';
-import 'package:sehat_makaan_flutter/features/workshops/services/workshop_creator_service.dart';
+import 'package:sehatmakaan/features/workshops/models/workshop_model.dart';
+import 'package:sehatmakaan/features/workshops/services/workshop_creator_service.dart';
 
 class CreateWorkshopPage extends StatefulWidget {
   final Map<String, dynamic> userSession;

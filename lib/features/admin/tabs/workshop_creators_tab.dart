@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/features/workshops/models/workshop_creator_model.dart';
-import 'package:sehat_makaan_flutter/features/workshops/models/workshop_creator_request_model.dart';
-import 'package:sehat_makaan_flutter/features/workshops/services/workshop_creator_service.dart';
+import 'package:sehatmakaan/features/admin/utils/responsive_helper.dart';
+import 'package:sehatmakaan/features/workshops/models/workshop_creator_model.dart';
+import 'package:sehatmakaan/features/workshops/models/workshop_creator_request_model.dart';
+import 'package:sehatmakaan/features/workshops/services/workshop_creator_service.dart';
 
 class WorkshopCreatorsTab extends StatefulWidget {
   final String adminId;

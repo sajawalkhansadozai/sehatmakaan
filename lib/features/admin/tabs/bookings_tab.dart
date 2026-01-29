@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/features/admin/widgets/booking_card_widget.dart';
+import 'package:sehatmakaan/features/admin/widgets/booking_card_widget.dart';
 import '../utils/admin_styles.dart';
 import '../utils/admin_formatters.dart';
 

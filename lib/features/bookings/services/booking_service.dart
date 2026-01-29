@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
-import 'package:sehat_makaan_flutter/features/bookings/models/booking_model.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
+import 'package:sehatmakaan/features/bookings/models/booking_model.dart';
 
 /// Booking Service for Firebase Firestore
 /// Handles all booking operations including create, read, update, delete

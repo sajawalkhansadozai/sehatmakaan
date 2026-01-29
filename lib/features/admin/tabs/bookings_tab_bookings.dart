@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../widgets/booking_card_widget.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/admin_styles.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/admin_formatters.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/responsive_helper.dart';
+import 'package:sehatmakaan/features/admin/utils/admin_styles.dart';
+import 'package:sehatmakaan/features/admin/utils/admin_formatters.dart';
+import 'package:sehatmakaan/features/admin/utils/responsive_helper.dart';
 
 class BookingsTab extends StatefulWidget {
   final DateTime selectedBookingDate;

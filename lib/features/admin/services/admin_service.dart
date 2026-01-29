@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:sehat_makaan_flutter/shared/firebase_models.dart';
+import 'package:sehatmakaan/shared/firebase_models.dart';
 
 /// Admin Service for Firebase Firestore
 /// Handles admin operations for user management and statistics

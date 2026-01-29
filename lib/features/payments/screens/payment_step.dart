@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/features/payments/services/payfast_service.dart';
-import 'package:sehat_makaan_flutter/features/payments/screens/payfast_webview_screen.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/features/payments/services/payfast_service.dart';
+import 'package:sehatmakaan/features/payments/screens/payfast_webview_screen.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 

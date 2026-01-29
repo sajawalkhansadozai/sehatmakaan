@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/services/session_storage_service.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/services/session_storage_service.dart';
 
 class VerificationPage extends StatefulWidget {
   final String? userId;

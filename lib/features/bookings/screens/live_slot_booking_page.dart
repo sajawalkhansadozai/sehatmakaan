@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/features/bookings/widgets/live_slot_booking_widget.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/features/bookings/widgets/live_slot_booking_widget.dart';
 
 class LiveSlotBookingPage extends StatelessWidget {
   final Map<String, dynamic> userSession;

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:sehat_makaan_flutter/core/utils/responsive_helper.dart';
-import 'package:sehat_makaan_flutter/data/providers/registration_provider.dart';
-import 'package:sehat_makaan_flutter/core/constants/constants.dart';
+import 'package:sehatmakaan/core/utils/responsive_helper.dart';
+import 'package:sehatmakaan/data/providers/registration_provider.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 
 // ✅ CRITICAL FIX: Convert to StatefulWidget to prevent provider recreation
 class RegistrationPage extends StatefulWidget {

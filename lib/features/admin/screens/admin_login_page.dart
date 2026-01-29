@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/features/auth/services/auth_service.dart';
+import 'package:sehatmakaan/features/auth/services/auth_service.dart';
 import 'admin_dashboard_page.dart';
 
 class AdminLoginPage extends StatefulWidget {

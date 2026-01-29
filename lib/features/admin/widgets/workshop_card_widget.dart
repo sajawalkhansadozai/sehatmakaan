@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/admin_formatters.dart';
-import 'package:sehat_makaan_flutter/features/admin/utils/admin_styles.dart';
+import 'package:sehatmakaan/features/admin/utils/admin_formatters.dart';
+import 'package:sehatmakaan/features/admin/utils/admin_styles.dart';
 
 class WorkshopCardWidget extends StatelessWidget {
   final Map<String, dynamic> workshop;
