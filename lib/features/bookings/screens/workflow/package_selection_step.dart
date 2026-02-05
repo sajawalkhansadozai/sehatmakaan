@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:sehatmakaan/core/constants/constants.dart';
 import 'package:sehatmakaan/core/constants/types.dart';
 import 'package:sehatmakaan/core/utils/responsive_helper.dart';
-import 'package:sehatmakaan/core/utils/price_helper.dart';
 
 class PackageSelectionStep extends StatefulWidget {
   final SuiteType? selectedSuite;
@@ -35,33 +34,9 @@ class _PackageSelectionStepState extends State<PackageSelectionStep> {
       );
     }
 
-    // Real-time pricing with StreamBuilder
-    return StreamBuilder<List<Package>>(
-      stream: PriceHelper.getPackagesForSuiteStream(
-        widget.selectedSuite!.value,
-      ),
-      builder: (context, snapshot) {
-        // Loading state
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF006876)),
-            ),
-          );
-        }
-
-        // Error state - fallback to defaults
-        if (snapshot.hasError) {
-          return _buildPackageList(
-            AppConstants.packages[widget.selectedSuite!.value] ?? [],
-          );
-        }
-
-        // Success - show real-time prices
-        final packages = snapshot.data ?? [];
-        return _buildPackageList(packages);
-      },
-    );
+    // ✅ Use static packages instead of StreamBuilder to prevent constant rebuilds
+    final packages = AppConstants.packages[widget.selectedSuite!.value] ?? [];
+    return _buildPackageList(packages);
   }
 
   Widget _buildPackageList(List<Package> packages) {

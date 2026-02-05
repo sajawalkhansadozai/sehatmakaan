@@ -398,9 +398,9 @@ class _WorkshopCreationFeeCheckoutPageState
 
       // Generate PayFast payment URL
       final paymentUrl =
-          'https://www.payfast.co.za/eng/process?'
-          'merchant_id=10000100' // DUMMY: Replace with real merchant_id
-          '&merchant_key=46f0cd694581a' // DUMMY: Replace with real merchant_key
+          'https://ipguat.apps.net.pk/Ecommerce/api/Transaction/PostTransaction?'
+          'MERCHANT_ID=102' // PayFast Official Test Merchant ID
+          '&SECURED_KEY=zWHjBp2AlttNu1sK' // PayFast Official Test Secured Key
           '&amount=${workshop.adminSetFee ?? 10000}'
           '&item_name=${Uri.encodeComponent('Workshop Creation Fee - ${workshop.title}')}'
           '&item_description=${Uri.encodeComponent('Creation fee for workshop: ${workshop.title}')}'

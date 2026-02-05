@@ -100,37 +100,74 @@ class _PayFastWebViewScreenState extends State<PayFastWebViewScreen> {
   }
 
   void _initializeWebView() {
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (String url) {
-            setState(() => _isLoading = true);
-            debugPrint('🌐 Page started: $url');
+    try {
+      _controller = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.white)
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageStarted: (String url) {
+              if (!mounted) return;
+              setState(() => _isLoading = true);
+              debugPrint('🌐 Page started: $url');
 
-            // ✅ Robust redirect detection using startsWith
-            if (url.startsWith('https://sehatmakaan.com/payment/success')) {
-              debugPrint('✅ Payment Success detected from URL');
-              widget.onPaymentSuccess?.call();
-              Navigator.of(context).pop(true);
-            } else if (url.startsWith(
-              'https://sehatmakaan.com/payment/cancel',
-            )) {
-              debugPrint('❌ Payment Cancelled detected from URL');
-              widget.onPaymentCancel?.call();
-              Navigator.of(context).pop(false);
-            }
-          },
-          onPageFinished: (String url) {
-            setState(() => _isLoading = false);
-            debugPrint('✅ Page finished: $url');
-          },
-          onWebResourceError: (WebResourceError error) {
-            debugPrint('❌ WebView error: ${error.description}');
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse(widget.paymentUrl));
+              // ✅ Robust redirect detection using startsWith
+              if (url.startsWith('https://sehatmakaan.com/payment/success')) {
+                debugPrint('✅ Payment Success detected from URL');
+                widget.onPaymentSuccess?.call();
+                if (mounted) Navigator.of(context).pop(true);
+              } else if (url.startsWith(
+                'https://sehatmakaan.com/payment/cancel',
+              )) {
+                debugPrint('❌ Payment Cancelled detected from URL');
+                widget.onPaymentCancel?.call();
+                if (mounted) Navigator.of(context).pop(false);
+              }
+            },
+            onPageFinished: (String url) {
+              if (!mounted) return;
+              setState(() => _isLoading = false);
+              debugPrint('✅ Page finished: $url');
+            },
+            onWebResourceError: (WebResourceError error) {
+              debugPrint('❌ WebView error: ${error.description}');
+              debugPrint('❌ Error code: ${error.errorCode}');
+              debugPrint('❌ Error type: ${error.errorType}');
+
+              // Don't crash on errors, just log them
+              if (!mounted) return;
+              setState(() => _isLoading = false);
+            },
+            onNavigationRequest: (NavigationRequest request) {
+              debugPrint('🔄 Navigation to: ${request.url}');
+              return NavigationDecision.navigate;
+            },
+          ),
+        )
+        ..loadRequest(Uri.parse(widget.paymentUrl)).catchError((error) {
+          debugPrint('❌ Failed to load payment URL: $error');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to load payment page: $error'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            Navigator.of(context).pop(false);
+          }
+        });
+    } catch (e) {
+      debugPrint('❌ WebView initialization error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error initializing payment: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        Navigator.of(context).pop(false);
+      }
+    }
   }
 
   @override

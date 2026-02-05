@@ -1,18 +1,74 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 /// PayFast Payment Service - Pakistan Integration
 /// Handles PayFast Pakistan (payfast.com.pk) payment integration
 class PayFastService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // ✅ PayFast Pakistan Configuration (use environment variables in production)
-  static const String merchantId = '10000100'; // Replace with your merchant ID
+  // ✅ PayFast Pakistan Test Credentials (from official documentation)
+  static const String merchantId = '102'; // PayFast UAT Test Merchant ID
   static const String securedKey =
-      '46f0cd694581a'; // Replace with your secured key
+      'zWHjBp2AlttNu1sK'; // PayFast UAT Test Secured Key
   static const bool testMode = true; // Set to false in production
+
+  /// Get Access Token from PayFast API
+  /// ✅ FIXED: Must include BASKET_ID, TXNAMT, CURRENCY_CODE (as per PHP example)
+  Future<String?> getAccessToken({
+    required String basketId,
+    required double amount,
+  }) async {
+    try {
+      final tokenUrl = testMode
+          ? 'https://ipguat.apps.net.pk/Ecommerce/api/Transaction/GetAccessToken'
+          : 'https://ipg1.apps.net.pk/Ecommerce/api/Transaction/GetAccessToken';
+
+      debugPrint('🔑 Requesting access token from PayFast...');
+
+      // ✅ CRITICAL FIX: Send as URL-encoded form data (like PHP example)
+      final params = {
+        'MERCHANT_ID': merchantId,
+        'SECURED_KEY': securedKey,
+        'BASKET_ID': basketId,
+        'TXNAMT': amount.toStringAsFixed(2),
+        'CURRENCY_CODE': 'PKR',
+      };
+
+      debugPrint('📝 Token request params: $params');
+
+      final response = await http.post(
+        Uri.parse(tokenUrl),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: params,
+      );
+
+      debugPrint('🔑 Token API Response: ${response.statusCode}');
+      debugPrint('🔑 Token API Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final token = data['ACCESS_TOKEN'] ?? data['token'] ?? data['TOKEN'];
+
+        if (token != null) {
+          debugPrint('✅ Access token received: $token');
+          return token;
+        } else {
+          debugPrint('❌ No token in response: ${response.body}');
+          return null;
+        }
+      } else {
+        debugPrint('❌ Token request failed: ${response.statusCode}');
+        debugPrint('Response: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('❌ Error getting access token: $e');
+      return null;
+    }
+  }
 
   /// Generate PayFast Pakistan payment parameters
   Map<String, String> generatePaymentParams({
@@ -24,21 +80,33 @@ class PayFastService {
   }) {
     final params = <String, String>{};
 
-    // ✅ PayFast Pakistan required fields
+    // ✅ PayFast Pakistan required fields (UPPERCASE as per API documentation)
     params['MERCHANT_ID'] = merchantId;
-    params['SECURED_KEY'] = securedKey;
+    params['MERCHANT_NAME'] = 'Sehat Makaan'; // Brand name
 
     // Transaction details
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    params['TOKEN'] = '$registrationId-$timestamp'; // Unique transaction token
+    // NOTE: TOKEN will be set by getAccessToken() API call
+    params['BASKET_ID'] = registrationId; // ✅ MANDATORY: Unique order ID
+
+    // ✅ FIX: ORDER_DATE must be "YYYY-MM-DD HH:MM:SS" format (as per PHP example)
+    final now = DateTime.now();
+    params['ORDER_DATE'] =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
 
     // ✅ Amount in PKR (no conversion needed for Pakistan)
     params['TXNAMT'] = amount.toStringAsFixed(2);
     params['CURRENCY_CODE'] = 'PKR'; // Pakistani Rupee
+    params['PROCCODE'] = '00'; // ✅ MANDATORY: Transaction process code
 
     // Customer details
-    params['CUSTOMER_EMAIL_ADDRESS'] = userEmail;
-    params['CUSTOMER_MOBILE_NO'] = ''; // Optional
+    // ⚠️ TEST CREDENTIALS (from PayFast support):
+    // Demo Bank: Account 111111111111111111111, CNIC: 1111111111111, OTP: 123456
+    // DO NOT use real JazzCash (03123456789) - real money deduction!
+    params['CUSTOMER_EMAIL_ADDRESS'] = userEmail.isNotEmpty
+        ? userEmail
+        : 'customer@sehatmakaan.com';
+    params['CUSTOMER_MOBILE_NO'] = '03000000090'; // ✅ PayFast demo number
 
     // ✅ Sanitize description
     final sanitizedTitle = workshopTitle
@@ -48,43 +116,48 @@ class PayFastService {
         .trim();
     params['TXNDESC'] = sanitizedTitle.isNotEmpty
         ? sanitizedTitle
-        : 'Workshop Registration';
+        : 'Sehat Makaan Booking';
 
-    // Callback URLs
+    // ✅ MANDATORY: Callback URLs
     params['SUCCESS_URL'] = 'https://sehatmakaan.com/payment/success';
     params['FAILURE_URL'] = 'https://sehatmakaan.com/payment/cancel';
     params['CHECKOUT_URL'] = 'https://sehatmakaan.com/payment/checkout';
+
+    // ✅ MANDATORY: Version (random string as per docs)
+    params['VERSION'] = 'SEHATMAKAAN-MOBILE-1.0';
 
     debugPrint('✅ PayFast Pakistan params generated for $userEmail');
 
     return params;
   }
 
-  /// Generate PayFast Pakistan signature
-  /// ✅ Specific order: MERCHANT_ID + SECURED_KEY + TOKEN + TXNAMT + CUSTOMER_EMAIL_ADDRESS
-  String generateSignature(Map<String, String> params) {
-    // ✅ PayFast Pakistan signature order (NOT alphabetical)
-    final signatureString =
-        '${params['MERCHANT_ID']}'
-        '${params['SECURED_KEY']}'
-        '${params['TOKEN']}'
-        '${params['TXNAMT']}'
-        '${params['CUSTOMER_EMAIL_ADDRESS']}';
+  /// Generate random signature for PayFast
+  /// ✅ CRITICAL FIX: SIGNATURE is just a random string (not a hash!)
+  /// As per PHP example: SIGNATURE = "SOMERANDOM-STRING"
+  String generateRandomSignature() {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final randomString = 'SEHATMAKAAN-$timestamp';
+    debugPrint('🔑 Random signature: $randomString');
+    return randomString;
+  }
 
-    debugPrint('🔐 Signature string: $signatureString');
-
-    // Generate SHA-256 hash
-    final bytes = utf8.encode(signatureString);
-    final digest = sha256.convert(bytes);
-
-    final signature = digest.toString();
-    debugPrint('🔑 Generated signature: $signature');
-
-    return signature;
+  /// Generate validation hash for webhook verification
+  /// Format: basket_id|secured_key|merchant_id|err_code
+  /// Used to verify PayFast's IPN (Instant Payment Notification)
+  String generateValidationHash({
+    required String basketId,
+    required String errorCode,
+  }) {
+    final hashString = '$basketId|$securedKey|$merchantId|$errorCode';
+    final bytes = utf8.encode(hashString);
+    final hash = sha256.convert(bytes);
+    debugPrint('🔐 Validation hash string: $hashString');
+    debugPrint('🔐 Validation hash: $hash');
+    return hash.toString();
   }
 
   /// Generate PayFast Pakistan payment URL
-  String generatePaymentUrl({
+  Future<String> generatePaymentUrl({
     required String registrationId,
     required String workshopTitle,
     required double amount,
@@ -92,30 +165,164 @@ class PayFastService {
     required String userName,
     String? bookingId, // ✅ NEW: For booking payments
     String? paymentType, // ✅ NEW: 'workshop', 'booking', or 'workshop_creation'
-  }) {
-    // Generate parameters
-    final params = generatePaymentParams(
-      registrationId: registrationId,
-      workshopTitle: workshopTitle,
-      amount: amount,
-      userEmail: userEmail,
-      userName: userName,
-    );
+  }) async {
+    try {
+      debugPrint('🔧 Generating payment URL...');
 
-    // Generate signature
-    final signature = generateSignature(params);
-    params['SIGNATURE'] = signature;
+      // Generate parameters first
+      final params = generatePaymentParams(
+        registrationId: registrationId,
+        workshopTitle: workshopTitle,
+        amount: amount,
+        userEmail: userEmail,
+        userName: userName,
+      );
 
-    // ✅ PayFast Pakistan API endpoint
-    final baseUrl = testMode
-        ? 'https://ipg.payfast.com.pk/api/payfast/pay' // Sandbox/Test
-        : 'https://ipg.payfast.com.pk/api/payfast/pay'; // Production
+      // ✅ CRITICAL FIX: Get access token with BASKET_ID and TXNAMT
+      final accessToken = await getAccessToken(
+        basketId: registrationId,
+        amount: amount,
+      );
+      if (accessToken == null) {
+        throw Exception('Failed to get PayFast access token');
+      }
 
-    final queryString = params.entries
-        .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
-        .join('&');
+      // ✅ Use PayFast-provided TOKEN
+      params['TOKEN'] = accessToken;
 
-    return '$baseUrl?$queryString';
+      debugPrint(
+        '📝 Payment params (before signature): ${params.keys.join(", ")}',
+      );
+
+      // ✅ CRITICAL FIX: Use random string for SIGNATURE (not SHA256 hash!)
+      final signature = generateRandomSignature();
+      params['SIGNATURE'] = signature;
+
+      debugPrint('✅ Random signature generated: $signature');
+
+      // ✅ PayFast Pakistan requires POST request, so we create an HTML form
+      // that auto-submits to the PayFast endpoint
+      final baseUrl = testMode
+          ? 'https://ipguat.apps.net.pk/Ecommerce/api/Transaction/PostTransaction' // Sandbox UAT
+          : 'https://ipg1.apps.net.pk/Ecommerce/api/Transaction/PostTransaction'; // Production
+
+      debugPrint('🌐 PayFast URL: $baseUrl');
+      debugPrint('📝 Payment params: ${params.keys.join(", ")}');
+
+      // Generate HTML form with auto-submit
+      final formFields = params.entries
+          .map(
+            (e) => '<input type="hidden" name="${e.key}" value="${e.value}">',
+          )
+          .join('\n');
+
+      final html =
+          '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Redirecting to PayFast...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #006876 0%, #00a0b0 100%);
+        }
+        .loader {
+            text-align: center;
+            color: white;
+        }
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 4px solid white;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="loader">
+        <div class="spinner"></div>
+        <h2>Redirecting to PayFast...</h2>
+        <p>Please wait while we redirect you to the payment gateway.</p>
+    </div>
+    <form id="payfast_form" action="$baseUrl" method="POST">
+        $formFields
+    </form>
+    <script>
+        // Add error handling for form submission
+        try {
+            console.log('Submitting payment form to PayFast...');
+            document.getElementById('payfast_form').submit();
+        } catch (error) {
+            console.error('Error submitting form:', error);
+            alert('Error redirecting to payment gateway. Please try again.');
+        }
+    </script>
+</body>
+</html>
+''';
+
+      // Return data URL with HTML form
+      final dataUrl =
+          'data:text/html;charset=utf-8,${Uri.encodeComponent(html)}';
+      debugPrint('✅ Payment URL generated successfully');
+      return dataUrl;
+    } catch (e) {
+      debugPrint('❌ Error generating payment URL: $e');
+      // Return error page HTML instead of crashing
+      final errorHtml =
+          '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Payment Error</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #f5f5f5;
+            text-align: center;
+            padding: 20px;
+        }
+        .error {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #d32f2f; }
+    </style>
+</head>
+<body>
+    <div class="error">
+        <h1>⚠️ Payment Error</h1>
+        <p>Unable to generate payment request.</p>
+        <p>Error: $e</p>
+        <p>Please go back and try again.</p>
+    </div>
+</body>
+</html>
+''';
+      return 'data:text/html;charset=utf-8,${Uri.encodeComponent(errorHtml)}';
+    }
   }
 
   /// Create payment record in Firestore
@@ -189,8 +396,8 @@ class PayFastService {
         userName: userName,
       );
 
-      // Generate payment URL
-      final paymentUrl = generatePaymentUrl(
+      // Generate payment URL (now async)
+      final paymentUrl = await generatePaymentUrl(
         registrationId: registrationId,
         workshopTitle: workshopTitle,
         amount: amount,
@@ -215,38 +422,42 @@ class PayFastService {
   }
 
   /// Verify PayFast payment callback
+  /// ⚠️ NOTE: For webhook verification, use generateValidationHash() instead
   Future<bool> verifyPaymentCallback(Map<String, dynamic> callbackData) async {
     try {
-      // Extract signature from callback
-      final receivedSignature = callbackData['signature'];
-      if (receivedSignature == null) {
-        debugPrint('❌ No signature in callback data');
+      // Extract validation hash from callback
+      final receivedHash = callbackData['validation_hash'];
+      final basketId = callbackData['basket_id'];
+      final errorCode = callbackData['err_code'] ?? '000';
+
+      if (receivedHash == null || basketId == null) {
+        debugPrint('❌ Missing validation_hash or basket_id in callback');
         return false;
       }
 
-      // Remove signature from data for verification
-      final dataToVerify = Map<String, String>.from(callbackData);
-      dataToVerify.remove('signature');
+      // Generate expected validation hash
+      // Format: basket_id|secured_key|merchant_id|err_code
+      final expectedHash = generateValidationHash(
+        basketId: basketId,
+        errorCode: errorCode,
+      );
 
-      // Generate expected signature
-      final expectedSignature = generateSignature(dataToVerify);
-
-      // Compare signatures
-      if (receivedSignature != expectedSignature) {
-        debugPrint('❌ Signature mismatch');
-        debugPrint('Received: $receivedSignature');
-        debugPrint('Expected: $expectedSignature');
+      // Compare hashes
+      if (receivedHash != expectedHash) {
+        debugPrint('❌ Validation hash mismatch');
+        debugPrint('Received: $receivedHash');
+        debugPrint('Expected: $expectedHash');
         return false;
       }
 
-      // Verify payment status
+      // Verify payment status (if completed)
       final paymentStatus = callbackData['payment_status'];
-      if (paymentStatus != 'COMPLETE') {
+      if (paymentStatus != null && paymentStatus != 'COMPLETE') {
         debugPrint('⚠️ Payment not complete: $paymentStatus');
         return false;
       }
 
-      debugPrint('✅ Payment verified successfully');
+      debugPrint('✅ Payment callback verified successfully');
       return true;
     } catch (e) {
       debugPrint('❌ Error verifying payment: $e');
@@ -259,6 +470,7 @@ class PayFastService {
     required String paymentId,
     required String status,
     Map<String, dynamic>? additionalData,
+    String paymentType = 'workshop', // ✅ NEW: Specify collection type
   }) async {
     try {
       final updateData = {
@@ -267,12 +479,14 @@ class PayFastService {
         ...?additionalData,
       };
 
-      await _firestore
-          .collection('workshop_payments')
-          .doc(paymentId)
-          .update(updateData);
+      // ✅ Use correct collection based on payment type
+      final collection = paymentType == 'booking'
+          ? 'booking_payments'
+          : 'workshop_payments';
 
-      debugPrint('✅ Payment status updated: $status');
+      await _firestore.collection(collection).doc(paymentId).update(updateData);
+
+      debugPrint('✅ Payment status updated in $collection: $status');
     } catch (e) {
       debugPrint('❌ Error updating payment status: $e');
       rethrow;

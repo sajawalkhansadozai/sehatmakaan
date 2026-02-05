@@ -82,8 +82,8 @@ Document: payment_abc789
 ```dart
 // Generate PayFast link with custom parameters
 String payFastLink = 'https://sandbox.payfast.co.za/eng/process?'
-  '&merchant_id=10029646'
-  '&merchant_key=your_key'
+  '&merchant_id=14833'
+  '&merchant_key=rPcy4T7GQkSCFsHBLdn26s'
   '&return_url=https://yourapp.com/success'
   '&cancel_url=https://yourapp.com/cancel'
   '&notify_url=https://us-central1-sehatmakaan-833e2.cloudfunctions.net/payfastWebhook'
@@ -509,7 +509,7 @@ Document: workshop_123
 // System redirects to PayFast with FIXED amount: PKR 10,000
 
 String payFastLink = 'https://sandbox.payfast.co.za/eng/process?'
-  '&merchant_id=10029646'
+  '&merchant_id=14833'
   '&amount=10000'  // ← FIXED amount, not variable!
   '&item_name=Workshop Creation Fee'
   '&notify_url=https://us-central1-sehatmakaan-833e2.cloudfunctions.net/payfastWorkshopCreationWebhook'

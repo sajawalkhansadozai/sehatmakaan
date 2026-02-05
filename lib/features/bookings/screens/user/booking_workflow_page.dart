@@ -32,6 +32,7 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
   String? _selectedSpecialty;
   final List<Map<String, dynamic>> _selectedAddons = [];
   bool _isProcessing = false;
+  bool _isNavigating = false; // 🔒 Prevent double navigation
 
   DateTime _selectedDate = DateTime.now();
   String? _selectedTimeSlot;
@@ -482,7 +483,16 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
           if (_currentStep > 0)
             Expanded(
               child: OutlinedButton(
-                onPressed: () => setState(() => _currentStep--),
+                onPressed: _isNavigating
+                    ? null
+                    : () {
+                        if (!_isNavigating) {
+                          debugPrint(
+                            '📍 Moving back from step $_currentStep to ${_currentStep - 1}',
+                          );
+                          setState(() => _currentStep--);
+                        }
+                      },
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   side: const BorderSide(color: Color(0xFF006876)),
@@ -498,12 +508,14 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
               (_bookingType == 'hourly' && _currentStep == 6)))
             Expanded(
               child: ElevatedButton(
-                onPressed: _canProceed() ? _handleNext : null,
+                onPressed: (_canProceed() && !_isNavigating)
+                    ? _handleNext
+                    : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF006876),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
-                child: _isProcessing
+                child: (_isProcessing || _isNavigating)
                     ? const SizedBox(
                         height: 20,
                         width: 20,
@@ -553,13 +565,29 @@ class _BookingWorkflowPageState extends State<BookingWorkflowPage> {
     }
   }
 
-  void _handleNext() {
+  void _handleNext() async {
+    // 🔒 Prevent double-tap navigation
+    if (_isProcessing || _isNavigating) {
+      debugPrint('⚠️ Navigation already in progress, ignoring');
+      return;
+    }
+
+    setState(() => _isNavigating = true);
+
     final maxStep = _bookingType == 'hourly' ? 6 : 5;
     if (_currentStep < maxStep) {
-      setState(() => _currentStep++);
+      setState(() {
+        debugPrint('📍 Moving from step $_currentStep to ${_currentStep + 1}');
+        _currentStep++;
+      });
+
+      // Increased delay to prevent rapid double-taps
+      await Future.delayed(const Duration(milliseconds: 600));
+      setState(() => _isNavigating = false);
     } else {
       // Complete workflow - no validation needed for PayFast payment
       _completeWorkflow();
+      setState(() => _isNavigating = false);
     }
   }
 

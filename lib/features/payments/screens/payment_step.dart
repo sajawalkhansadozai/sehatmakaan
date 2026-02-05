@@ -59,8 +59,8 @@ class _PaymentStepState extends State<PaymentStep> {
         '💳 Starting payment for booking: $bookingId, registration: $registrationId',
       );
 
-      // ✅ FIX: Pass bookingId and paymentType to service
-      final paymentUrl = _payFastService.generatePaymentUrl(
+      // ✅ FIX: Pass bookingId and paymentType to service (async call)
+      final paymentUrl = await _payFastService.generatePaymentUrl(
         registrationId: registrationId,
         workshopTitle:
             '${widget.bookingType == 'hourly' ? 'Hourly' : 'Monthly'} Booking',
@@ -101,6 +101,7 @@ class _PaymentStepState extends State<PaymentStep> {
                   await _payFastService.updatePaymentStatus(
                     paymentId: _currentPaymentId!,
                     status: 'completed',
+                    paymentType: 'booking', // ✅ Specify booking payment
                     additionalData: {
                       'completedAt': DateTime.now().toIso8601String(),
                     },
@@ -113,6 +114,7 @@ class _PaymentStepState extends State<PaymentStep> {
                   await _payFastService.updatePaymentStatus(
                     paymentId: _currentPaymentId!,
                     status: 'cancelled',
+                    paymentType: 'booking', // ✅ Specify booking payment
                     additionalData: {
                       'cancelledAt': DateTime.now().toIso8601String(),
                     },
@@ -413,8 +415,9 @@ class _PaymentStepState extends State<PaymentStep> {
   void _startPaymentStatusListener(String paymentId) {
     debugPrint('?? Starting payment status listener for: $paymentId');
 
+    // ✅ FIX: Use booking_payments collection for booking payments
     _paymentStatusSubscription = FirebaseFirestore.instance
-        .collection('workshop_payments')
+        .collection('booking_payments')
         .doc(paymentId)
         .snapshots()
         .listen((snapshot) {

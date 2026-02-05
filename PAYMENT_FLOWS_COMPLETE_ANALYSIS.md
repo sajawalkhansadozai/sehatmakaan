@@ -38,8 +38,8 @@ Workshop Checkout Page
 └─ "Proceed to Payment" button
     ↓
 PayFast Payment Gateway Opens (External)
-├─ Merchant ID: 10029646
-├─ Merchant Key: qzffl86tqx6qk
+├─ Merchant ID: 14833
+├─ Merchant Key: rPcy4T7GQkSCFsHBLdn26s
 ├─ Amount: Workshop Price (PKR)
 └─ Item: Workshop Title
     ↓
@@ -324,8 +324,8 @@ Patient Can View Booking
 
 | Property | Value |
 |----------|-------|
-| **Merchant ID** | 10029646 |
-| **Merchant Key** | qzffl86tqx6qk |
+| **Merchant ID** | 14833 |
+| **Merchant Key** | rPcy4T7GQkSCFsHBLdn26s |
 | **Payment URL** | https://www.payfast.co.za/eng/process |
 | **Test Mode** | ❌ PRODUCTION (Not test mode) |
 | **Currencies** | ZAR, PKR supported |

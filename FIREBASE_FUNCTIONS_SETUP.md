@@ -210,7 +210,7 @@ gmail.password = your-16-digit-app-password
 Add more if needed:
 ```bash
 firebase functions:config:set stripe.key="sk_test_..." 
-firebase functions:config:set payfast.merchant_id="10000100"
+firebase functions:config:set payfast.merchant_id="14833"
 ```
 
 ## ✅ Verification Checklist

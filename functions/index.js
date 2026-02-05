@@ -5,10 +5,12 @@ const crypto = require('crypto');
 
 admin.initializeApp();
 
-// Email configuration using environment variables
-// Set these with: firebase functions:config:set gmail.email="your-email@gmail.com" gmail.password="your-app-password"
-const gmailEmail = functions.config().gmail?.email;
-const gmailPassword = functions.config().gmail?.password;
+// ✅ Environment Variables Configuration (Replaces deprecated functions.config())
+const gmailEmail = process.env.GMAIL_EMAIL || functions.config().gmail?.email;
+const gmailPassword = process.env.GMAIL_PASSWORD || functions.config().gmail?.password;
+const payfastMerchantId = process.env.PAYFAST_MERCHANT_ID || '102';
+const payfastMerchantKey = process.env.PAYFAST_MERCHANT_KEY || 'zWHjBp2AlttNu1sK';
+const payfastTestMode = process.env.PAYFAST_TEST_MODE !== 'false';
 
 // Create reusable transporter
 let transporter;
@@ -23,7 +25,7 @@ if (gmailEmail && gmailPassword) {
   console.log('✅ Email transporter configured with Gmail');
 } else {
   console.warn('⚠️ Gmail credentials not configured. Emails will be logged only.');
-  console.warn('Set credentials with: firebase functions:config:set gmail.email="your-email" gmail.password="your-app-password"');
+  console.warn('Set credentials in .env.local or with: firebase functions:secrets:set GMAIL_EMAIL');
 }
 
 /**
@@ -799,10 +801,10 @@ exports.generatePayFastLink = functions.https.onCall(async (data, context) => {
   }
 
   try {
-    // PayFast configuration (use environment variables in production)
-    const merchantId = functions.config().payfast?.merchant_id || '10000100';
-    const merchantKey = functions.config().payfast?.merchant_key || '46f0cd694581a';
-    const isTestMode = functions.config().payfast?.test_mode !== 'false';
+    // ✅ PayFast configuration - Using environment variables
+    const merchantId = payfastMerchantId;
+    const merchantKey = payfastMerchantKey;
+    const isTestMode = payfastTestMode;
 
     // Generate payment parameters
     const params = {

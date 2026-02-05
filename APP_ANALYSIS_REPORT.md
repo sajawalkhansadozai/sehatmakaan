@@ -1,4 +1,4 @@
-# 🔍 Sehat Makaan App - Complete Analysis Report
+us # 🔍 Sehat Makaan App - Complete Analysis Report
 **Date:** January 26, 2026  
 **Analysis Type:** Full App Walkthrough & Feature Audit  
 **Status:** Comprehensive Review
@@ -228,8 +228,8 @@ Map<String, dynamic> _getStoredUserSession() {
 **Problem:** No clear indication if PayFast is in test/sandbox mode  
 **Credentials Found:**
 ```dart
-merchant_id: 10029646
-merchant_key: qzffl86tqx6qk
+merchant_id: 14833
+merchant_key: rPcy4T7GQkSCFsHBLdn26s
 ```
 **Risk:** May be test credentials in production code
 

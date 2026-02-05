@@ -237,8 +237,8 @@ firebase functions:log --only payfastWebhook,handlePayFastWebhook
 ### **Priority 2 (Not Urgent)**:
 1. Move PayFast credentials to environment variables
    ```bash
-   firebase functions:config:set payfast.merchant_id="10029646"
-   firebase functions:config:set payfast.merchant_key="qzffl86tqx6qk"
+   firebase functions:config:set payfast.merchant_id="14833"
+   firebase functions:config:set payfast.merchant_key="rPcy4T7GQkSCFsHBLdn26s"
    ```
 
 2. Add webhook rate limiting (prevent DDoS)

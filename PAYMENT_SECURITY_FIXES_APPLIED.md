@@ -252,7 +252,7 @@ firebase functions:log --only payfastWebhook,payfastWorkshopCreationWebhook,hand
 
 ### 3. **Test Signature Verification** (Manual)
 PayFast test credentials:
-- Merchant ID: 10029646
+- Merchant ID: 14833
 - Return: Can monitor webhook logs for signature verification
 
 ### 4. **Testing Checklist**

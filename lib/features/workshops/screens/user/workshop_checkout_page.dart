@@ -339,9 +339,9 @@ class _WorkshopCheckoutPageState extends State<WorkshopCheckoutPage> {
 
       // Build PayFast payment URL with proper parameters
       final payfastUrl =
-          'https://www.payfast.co.za/eng/process?'
-          'merchant_id=10029646'
-          '&merchant_key=qzffl86tqx6qk'
+          'https://ipguat.apps.net.pk/Ecommerce/api/Transaction/PostTransaction?'
+          'MERCHANT_ID=102'
+          '&SECURED_KEY=zWHjBp2AlttNu1sK'
           '&amount=$amount'
           '&item_name=Workshop%20Registration%3A%20$workshopTitle'
           '&item_description=Payment%20for%20workshop%20registration'

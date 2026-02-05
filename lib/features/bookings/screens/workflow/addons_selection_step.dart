@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sehatmakaan/core/utils/responsive_helper.dart';
-import 'package:sehatmakaan/core/utils/price_helper.dart';
+import 'package:sehatmakaan/core/constants/constants.dart';
 import 'package:sehatmakaan/core/constants/types.dart';
 
 class AddonsSelectionStep extends StatefulWidget {
@@ -81,57 +81,40 @@ class _AddonsSelectionStepState extends State<AddonsSelectionStep> {
 
   @override
   Widget build(BuildContext context) {
-    // Real-time pricing with StreamBuilder
-    return StreamBuilder<List<Addon>>(
-      stream: widget.isHourlyBooking
-          ? PriceHelper.getHourlyAddonsStream()
-          : PriceHelper.getMonthlyAddonsStream(),
-      builder: (context, snapshot) {
-        // Loading state
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF006876)),
+    // ✅ Use static addons to prevent constant rebuilds
+    final staticAddons = widget.isHourlyBooking
+        ? AppConstants.hourlyAddons
+        : AppConstants.monthlyAddons;
+
+    final displayAddons = availableAddons
+        .where((addon) {
+          if (widget.isHourlyBooking) {
+            return addon['forMonthlyOnly'] != true;
+          } else {
+            return addon['forMonthlyOnly'] == true;
+          }
+        })
+        .map((addon) {
+          final staticAddon = staticAddons.firstWhere(
+            (a) => a.code == addon['code'],
+            orElse: () => Addon(
+              name: addon['name'] as String,
+              description: addon['description'] as String,
+              price: 0,
+              code: addon['code'] as String,
             ),
           );
-        }
 
-        // Get live addons or fallback to empty list
-        final liveAddons = snapshot.data ?? [];
+          return {
+            'name': addon['name'],
+            'description': addon['description'],
+            'price': staticAddon.price,
+            'code': addon['code'],
+          };
+        })
+        .toList();
 
-        // Merge with metadata
-        final displayAddons = availableAddons
-            .where((addon) {
-              if (widget.isHourlyBooking) {
-                return addon['forMonthlyOnly'] != true;
-              } else {
-                return addon['forMonthlyOnly'] == true;
-              }
-            })
-            .map((addon) {
-              // Find matching live price
-              final liveAddon = liveAddons.firstWhere(
-                (la) => la.code == addon['code'],
-                orElse: () => Addon(
-                  name: addon['name'] as String,
-                  description: addon['description'] as String,
-                  price: 0,
-                  code: addon['code'] as String,
-                ),
-              );
-
-              return {
-                'name': addon['name'],
-                'description': addon['description'],
-                'price': liveAddon.price,
-                'code': addon['code'],
-              };
-            })
-            .toList();
-
-        return _buildAddonsList(displayAddons);
-      },
-    );
+    return _buildAddonsList(displayAddons);
   }
 
   Widget _buildAddonsList(List<Map<String, dynamic>> addons) {
